@@ -346,6 +346,8 @@ class CPU:
                     if 0 <= address < self.memory_size:
                         val = self.registers[self.register_names[reg_code]]; self.memory[address] = val
                         if self.screen_address <= address < self.screen_address + (self.screen_width * self.screen_height):
+                            print(f"CPU DEBUG: address={address:04X}, screen_address={self.screen_address:04X}, width={self.screen_width}")
+                            print(f"CPU DEBUG: offset={address - self.screen_address}, col={(address - self.screen_address) % self.screen_width}, row={(address - self.screen_address) // self.screen_width}")
                             if self.gui: self.gui.update_pixel((address - self.screen_address) % self.screen_width, (address - self.screen_address) // self.screen_width, val)
                         pc_increment = 4 # Op(1)+Addr(2)+Reg(1)
                     else: print(f"STORE bounds error. Halting."); self.running = False; pc_increment = 0
@@ -539,11 +541,12 @@ class SimulatorGUI:
 
     # Method called by CPU when screen memory changes via STORE/STOREIND
     def update_pixel(self, col, row, color_index):
-         if 0 <= col < self.screen_width and 0 <= row < self.screen_height:
-             px, py = col * self.pixel_size, row * self.pixel_size
-             color = self.colors[color_index] if 0 <= color_index < len(self.colors) else (255, 0, 0) # Red for invalid color index
-             pygame.draw.rect(self.screen_surface, color, (px, py, self.pixel_size, self.pixel_size))
-             self.needs_display_update = True # Mark display needs refresh
+        print(f"GUI DEBUG: Received col={col}, row={row}")
+        if 0 <= col < self.screen_width and 0 <= row < self.screen_height:
+            px, py = col * self.pixel_size, row * self.pixel_size
+            color = self.colors[color_index] if 0 <= color_index < len(self.colors) else (255, 0, 0) # Red for invalid color index
+            pygame.draw.rect(self.screen_surface, color, (px, py, self.pixel_size, self.pixel_size))
+            self.needs_display_update = True # Mark display needs refresh
 
     def update_gui_callback(self): self.status_message = f"CPU Halted. Final PC: 0x{self.cpu.registers.get('PC', 0):04X}"; self.needs_display_update = True; print("[CPU Callback] CPU thread finished.")
 
