@@ -19,7 +19,7 @@ DRAW_TOP_LOOP:
     CMPI R2, 100
     JC DRAW_BOTTOM_LINE
     CALL CALC_ADDRESS
-    MOVI R4, 14
+    MOVI R4, 1
     STOREIND R4
     INC R2
     JMP DRAW_TOP_LOOP
@@ -32,7 +32,7 @@ DRAW_BOTTOM_LOOP:
     CMPI R2, 100
     JC DRAW_LEFT_LINE
     CALL CALC_ADDRESS
-    MOVI R4, 14
+    MOVI R4, 2
     STOREIND R4
     INC R2
     JMP DRAW_BOTTOM_LOOP
@@ -45,7 +45,7 @@ DRAW_LEFT_LOOP:
     CMPI R3, 99
     JC DRAW_RIGHT_LINE
     CALL CALC_ADDRESS
-    MOVI R4, 14
+    MOVI R4, 3
     STOREIND R4
     INC R3
     JMP DRAW_LEFT_LOOP
@@ -58,7 +58,7 @@ DRAW_RIGHT_LOOP:
     CMPI R3, 99
     JC DRAW_BOX_DONE
     CALL CALC_ADDRESS
-    MOVI R4, 14
+    MOVI R4, 4
     STOREIND R4
     INC R3
     JMP DRAW_RIGHT_LOOP
@@ -68,14 +68,14 @@ DRAW_BOX_DONE:
 
 # =======================================================
 # Subroutine: CALC_ADDRESS
-# Calculates screen address: 0xD8F0 + (Y * 100) + X
+# Calculates screen address: 0xD6F0 + (Y * 100) + X
 # =======================================================
 CALC_ADDRESS:
     PUSH R2
     PUSH R3
     PUSH R4
 
-    MOVI R0, 0xD8
+    MOVI R0, 0xD6
     MOVI R1, 0xF0
 
 ADD_Y_LOOP:
