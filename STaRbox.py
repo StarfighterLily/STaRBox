@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import os
+import re
 
 class Assembler:
     def __init__( self ):
@@ -23,8 +24,8 @@ class Assembler:
             "ADDI": 0x09,  # Reg, Imm8
             "SUBI": 0x0A,  # Reg, Imm8
             "LOAD": 0x0B,  # Reg, Addr16
-            "LOADI": 0x0C, # Reg, [RegAddr] (Zero-page only interpretation)
-            "STOREI": 0x0D, # [RegAddr], Reg (Zero-page only interpretation)
+            "LOADI": 0x0C, # Reg, [RegAddr]
+            "STOREI": 0x0D, # [RegAddr], Reg
             "CMP": 0x0E,   # Reg, Reg
             "CMPI": 0x0F,  # Reg, Imm8
             "PUSH": 0x20,  # Reg
@@ -37,14 +38,28 @@ class Assembler:
             "JNC": 0x33,   # Addr16
             "JN": 0x34,    # Addr16
             "JNN": 0x35,   # Addr16
-            "STOREIND": 0x15, # Rm (Stores Rm to address in R0:R1) - Using 0x15 now
-            "LOADIND": 0x16,  # Rm (Loads from address in R0:R1 into Rm)
+            "STOREIND": 0x15, # [R0:R1], Rm
+            "LOADIND": 0x16,  # Rm, [R0:R1]
+            "AND": 0x40, "OR": 0x41, "XOR": 0x42, "NOT": 0x43,
+            "ANDI": 0x44, "ORI": 0x45, "XORI": 0x46,
+            "SHL": 0x47, "SHR": 0x48,
+            # --- NEW ADVANCED OPCODES ---
+            "MUL": 0x50,      # R_dest, R_src
+            "MOV16": 0x51,    # R_pair, Imm16
+            "ADD16": 0x52,    # R_pair_dest, R_pair_src
+            "PUSHA": 0x53,    # Implied
+            "POPA": 0x54,     # Implied
+            "LOADIX": 0x55,   # R_dest, [R_pair + Imm8]
+            "STOREIX": 0x56,  # [R_pair + Imm8], R_src
+            "LOADSP": 0x57,   # R_dest, [SP + Imm8]
         }
         registers = {
             "R0": 0x10, "R1": 0x11, "R2": 0x12, "R3": 0x13, "R4": 0x14,
         }
+        # Register pairs are identified by their high-order register (R0 or R2)
+        register_pairs = { "R0": 0xA0, "R2": 0xA2 }
 
-        # --- Helper function to define constants ---
+
         def define_constants( lines_list ):
             constants = {}
             remaining_lines = []
@@ -64,7 +79,6 @@ class Assembler:
                     remaining_lines.append(line)
             return constants, remaining_lines
 
-        # --- Pre-Pass: Handle EQU ---
         print("[Assembler Pre-Pass] Looking for EQU constants...")
         constants, lines = define_constants(lines)
         if constants is None: return None
@@ -72,395 +86,311 @@ class Assembler:
 
         def get_instruction_size( op_name, operands_list ):
             op_name = op_name.upper()
-            op_code = opcodes.get( op_name )
-            if op_code is None: return 0 # Error handled later
+            if op_name not in opcodes: return 0
 
             size = 1 # Opcode byte
-
-            if op_name in [ "INC", "DEC", "PUSH", "POP", "STOREIND", "LOADIND" ]: # Op + Reg
-                size += 1
-            elif op_name in [ "MOVI", "ADDI", "SUBI", "CMPI" ]: # Op + Reg + Imm8
-                size += 2
-            elif op_name in [ "MOV", "ADD", "SUB", "CMP", "LOADI", "STOREI" ]: # Op + Reg + Reg
-                size += 2
-            elif op_name in [ "JMP", "CALL", "JZ", "JNZ", "JC", "JNC", "JN", "JNN" ]: # Op + Addr16
-                size += 2
-            elif op_name in [ "LOAD", "STORE" ]: # Op + Reg + Addr16 (LOAD) or Op + Addr16 + Reg (STORE)
-                size += 3
-            elif op_name in [ "HLT", "RET", "NOP" ]: # Op only
-                size += 0
+            if op_name in ["INC", "DEC", "PUSH", "POP", "STOREIND", "LOADIND", "NOT"]: size += 1
+            elif op_name in ["MOVI", "ADDI", "SUBI", "CMPI", "ANDI", "ORI", "XORI", "SHL", "SHR", "LOADSP"]: size += 2
+            elif op_name in ["MOV", "ADD", "SUB", "CMP", "AND", "OR", "XOR", "MUL", "ADD16"]: size += 2
+            elif op_name in ["JMP", "CALL", "JZ", "JNZ", "JC", "JNC", "JN", "JNN"]: size += 2
+            elif op_name in ["LOAD", "STORE"]: size += 3
+            elif op_name in ["HLT", "RET", "NOP", "PUSHA", "POPA"]: size += 0
+            elif op_name in ["MOV16", "LOADIX", "STOREIX"]: size += 3
             else:
-                print( f"[WARN] Add size calculation for known opcode: {op_name}" )
-                return 1 # Default if missed
-
+                print(f"[WARN] Add size calculation for known opcode: {op_name}")
+                return 1
             return size
 
         def split_operands( operand_string ):
             if not operand_string: return []
-            return [ op.strip() for op in operand_string.split( ',' ) ]
+            # This regex handles simple operands and indexed addressing like [R0 + 10]
+            return [op.strip() for op in re.split(r",\s*(?![^\[]*\])", operand_string)]
 
         print( "[Assembler Pass 1] Starting Label Scan & Intermediate Build..." )
-        labels = {}
-        code_intermediate = []
-        current_address = 0
+        labels = {}; code_intermediate = []; current_address = 0
         lines_with_num = list( enumerate( lines, 1 ) )
 
         for line_num, line in lines_with_num:
-            original_line = line
-            line = line.split( '#', 1 )[ 0 ].strip()
+            line = line.split('#', 1)[0].strip()
             if not line: continue
             parts = line.split()
             if not parts: continue
-            instruction_part_maybe_label = parts[ 0 ]
+            
             defined_label = None
-
-            if instruction_part_maybe_label.endswith( ':' ):
-                label = instruction_part_maybe_label[ :-1 ]
-                if not label or not label.isidentifier():
-                     print( f"[Assembler Error] Invalid label name '{label}' on line {line_num}" )
-                     return None
-                label_upper = label.upper()
-                if label_upper in labels:
-                    print( f"[Assembler Error] Duplicate label definition '{label}' on line {line_num}" )
-                    return None
-                labels[ label_upper ] = current_address
-                defined_label = label_upper
-                if len( parts ) == 1: continue
-                else: parts = parts[ 1: ]
+            if parts[0].endswith(':'):
+                label = parts[0][:-1].upper()
+                if not label.isidentifier():
+                    print(f"[Assembler Error] Invalid label name '{label}' on line {line_num}"); return None
+                if label in labels:
+                    print(f"[Assembler Error] Duplicate label definition '{label}' on line {line_num}"); return None
+                labels[label] = current_address
+                defined_label = label
+                parts = parts[1:]
                 if not parts: continue
 
-            if parts:
-                instruction_op = parts[ 0 ].upper()
-                operand_str = ' '.join( parts[ 1: ] )
-                operands = split_operands( operand_str )
+            instruction_op = parts[0].upper()
+            operand_str = ' '.join(parts[1:])
+            operands = split_operands(operand_str)
 
-                if instruction_op not in opcodes:
-                     print( f"[Assembler Error] Unrecognized instruction '{instruction_op}' on line {line_num}" )
-                     return None
+            if instruction_op not in opcodes:
+                print(f"[Assembler Error] Unrecognized instruction '{instruction_op}' on line {line_num}"); return None
 
-                instr_size = get_instruction_size( instruction_op, operands )
-                if instr_size == 0:
-                    print( f"[Assembler Error] Could not determine size for '{instruction_op}' on line {line_num}." )
-                    return None
+            instr_size = get_instruction_size(instruction_op, operands)
+            code_intermediate.append({
+                'line': line_num, 'address': current_address, 'label': defined_label,
+                'op': instruction_op, 'operands': operands, 'size': instr_size
+            })
+            current_address += instr_size
 
-                code_intermediate.append( {
-                    'line': line_num, 'address': current_address, 'label': defined_label,
-                    'op': instruction_op, 'operands': operands, 'size': instr_size
-                } )
-                current_address += instr_size
-
-        print( f"[Assembler Pass 1] Scan & Intermediate Build Complete. Labels: {labels}" )
-        print( f"[Assembler Pass 1] Calculated code size: {current_address} bytes." )
-
-        print( "[Assembler Pass 2] Generating code..." )
+        print(f"[Assembler Pass 1] Complete. Labels: {labels}. Code size: {current_address} bytes.")
+        print("[Assembler Pass 2] Generating code...")
         code = bytearray()
 
-        def parse_register( operand, line_num, allow_indirect=False ):
-             operand_upper = operand.upper(); is_indirect = False; reg_name = operand_upper
-             if allow_indirect and operand_upper.startswith( '[' ) and operand_upper.endswith( ']' ):
-                 is_indirect = True; reg_name = operand_upper[ 1:-1 ].strip()
-             reg_code = registers.get( reg_name )
-             if reg_code is None: print( f"Assembly Error (Line {line_num}): Invalid register '{operand}'" ); return None, is_indirect
-             return reg_code, is_indirect
+        def parse_register(operand, line_num):
+            reg_code = registers.get(operand.upper())
+            if reg_code is None: print(f"Assembly Error (Line {line_num}): Invalid register '{operand}'"); return None
+            return reg_code
+        
+        def parse_register_pair(operand, line_num):
+            pair_code = register_pairs.get(operand.upper())
+            if pair_code is None: print(f"Assembly Error (Line {line_num}): Invalid register pair '{operand}' (must be R0 or R2)"); return None
+            return pair_code
 
-        def parse_value(operand, line_num, labels_dict, consts_dict, bits=8):
+        def parse_value(operand, line_num, bits=8):
             operand_upper = operand.upper()
-            if operand_upper in consts_dict:
-                val = consts_dict[operand_upper]
-            elif operand_upper in labels_dict:
-                val = labels_dict[operand_upper]
-            else:
-                try:
-                    val = int(operand, 0)
-                except ValueError:
-                    print(f"Assembly Error (Line {line_num}): Invalid immediate/label/constant '{operand}'")
-                    return None
+            val = constants.get(operand_upper, labels.get(operand_upper))
+            if val is None:
+                try: val = int(operand, 0)
+                except ValueError: print(f"Assembly Error (Line {line_num}): Invalid immediate/label/constant '{operand}'"); return None
             
             max_val = (1 << bits) - 1
-            if 0 <= val <= max_val:
-                return val
-            else:
-                print(f"Assembly Error (Line {line_num}): Value '{operand}' ({val}) out of {bits}-bit range")
-                return None
+            if not (0 <= val <= max_val): print(f"Assembly Error (Line {line_num}): Value '{operand}' ({val}) out of {bits}-bit range"); return None
+            return val
+
+        def parse_indexed_operand(operand, line_num):
+            match = re.match(r"\[\s*(R0|R2|SP)\s*\+\s*([^\]]+)\]", operand.upper())
+            if not match: print(f"Assembly Error (Line {line_num}): Invalid indexed operand format '{operand}'"); return None, None, None
+            
+            reg_name, val_str = match.groups()
+            reg_code = register_pairs.get(reg_name) if reg_name != "SP" else 0xFF # Special code for SP
+            val = parse_value(val_str, line_num, 8)
+            if val is None: return None, None, None
+            return reg_code, val, reg_name
 
         for item in code_intermediate:
-            line_num = item[ 'line' ]; op = item[ 'op' ]; operands = item[ 'operands' ]
-            op_code = opcodes[ op ]; expected_size = item[ 'size' ]; start_len = len( code )
-            code.append( op_code )
+            line_num, op, operands = item['line'], item['op'], item['operands']
+            op_code = opcodes[op]
+            code.append(op_code)
 
             try:
-                if op in [ "INC", "DEC", "PUSH", "POP", "STOREIND", "LOADIND" ]:
-                    if len( operands ) != 1: raise ValueError( "expects 1 register operand" )
-                    reg_code, _ = parse_register( operands[ 0 ], line_num )
-                    if reg_code is None: raise ValueError( "Invalid register" )
-                    code.append( reg_code )
-                elif op in [ "MOVI", "ADDI", "SUBI", "CMPI" ]:
-                    if len( operands ) != 2: raise ValueError( "expects 2 operands (Reg, Value)" )
-                    reg_code, _ = parse_register( operands[ 0 ], line_num )
-                    val = parse_value( operands[ 1 ], line_num, labels, constants, 8 )
-                    if reg_code is None or val is None: raise ValueError( "Invalid operand(s)" )
-                    code.append( reg_code ); code.append( val )
-                elif op in [ "MOV", "ADD", "SUB", "CMP" ]:
-                    if len( operands ) != 2: raise ValueError( "expects 2 register operands" )
-                    reg1_code, _ = parse_register( operands[ 0 ], line_num )
-                    reg2_code, _ = parse_register( operands[ 1 ], line_num )
-                    if reg1_code is None or reg2_code is None: raise ValueError( "Invalid register(s)" )
-                    code.append( reg1_code ); code.append( reg2_code )
-                elif op in [ "LOADI", "STOREI" ]:
-                    if len( operands ) != 2: raise ValueError( "expects 2 operands (Reg, [Reg] or [Reg], Reg)" )
-                    if op == "LOADI":
-                        reg_data_code, _ = parse_register( operands[ 0 ], line_num )
-                        reg_addr_code, is_indirect = parse_register( operands[ 1 ], line_num, allow_indirect=True )
-                        if reg_data_code is None or reg_addr_code is None or not is_indirect: raise ValueError( "Invalid operands for LOADI. Use format: LOADI RegData, [RegAddr]" )
-                        code.append( reg_data_code ); code.append( reg_addr_code )
-                    else:
-                        reg_addr_code, is_indirect = parse_register( operands[ 0 ], line_num, allow_indirect=True )
-                        reg_data_code, _ = parse_register( operands[ 1 ], line_num )
-                        if reg_addr_code is None or not is_indirect or reg_data_code is None: raise ValueError( "Invalid operands for STOREI. Use format: STOREI [RegAddr], RegData" )
-                        code.append( reg_addr_code ); code.append( reg_data_code )
-                elif op in [ "JMP", "CALL", "JZ", "JNZ", "JC", "JNC", "JN", "JNN" ]:
-                    if len( operands ) != 1: raise ValueError( "expects 1 address/label operand" )
-                    address = parse_value( operands[ 0 ], line_num, labels, constants, 16 )
-                    if address is None: raise ValueError( "Invalid address/label" )
-                    code.append( ( address >> 8 ) & 0xFF ); code.append( address & 0xFF )
+                if op in ["INC", "DEC", "PUSH", "POP", "NOT"]:
+                    reg = parse_register(operands[0], line_num); code.append(reg)
+                elif op in ["MOVI", "ADDI", "SUBI", "CMPI", "ANDI", "ORI", "XORI", "SHL", "SHR"]:
+                    reg = parse_register(operands[0], line_num); val = parse_value(operands[1], line_num, 8)
+                    code.extend([reg, val])
+                elif op in ["MOV", "ADD", "SUB", "CMP", "AND", "OR", "XOR", "MUL"]:
+                    reg1 = parse_register(operands[0], line_num); reg2 = parse_register(operands[1], line_num)
+                    code.extend([reg1, reg2])
+                elif op in ["JMP", "CALL", "JZ", "JNZ", "JC", "JNC", "JN", "JNN"]:
+                    addr = parse_value(operands[0], line_num, 16)
+                    code.extend([(addr >> 8) & 0xFF, addr & 0xFF])
                 elif op == "LOAD":
-                    if len( operands ) != 2: raise ValueError( "expects 2 operands (Register, Address/Label)" )
-                    reg_code, _ = parse_register( operands[ 0 ], line_num )
-                    address = parse_value( operands[ 1 ], line_num, labels, constants, 16 )
-                    if reg_code is None or address is None: raise ValueError( "Invalid operand(s)" )
-                    code.append( reg_code ); code.append( ( address >> 8 ) & 0xFF ); code.append( address & 0xFF )
+                    reg = parse_register(operands[0], line_num); addr = parse_value(operands[1], line_num, 16)
+                    code.extend([reg, (addr >> 8) & 0xFF, addr & 0xFF])
                 elif op == "STORE":
-                    if len( operands ) != 2: raise ValueError( "expects 2 operands (Address/Label, Register)" )
-                    address = parse_value( operands[ 0 ], line_num, labels, constants, 16 )
-                    reg_code, _ = parse_register( operands[ 1 ], line_num )
-                    if reg_code is None or address is None: raise ValueError( "Invalid operand(s)" )
-                    code.append( ( address >> 8 ) & 0xFF ); code.append( address & 0xFF ); code.append( reg_code )
-                elif op in [ "HLT", "RET", "NOP" ]:
-                    if len( operands ) != 0: raise ValueError( "expects 0 operands" )
-                else:
-                     raise ValueError( f"Unhandled known opcode '{op}' in Pass 2 operand stage" )
+                    addr = parse_value(operands[0], line_num, 16); reg = parse_register(operands[1], line_num)
+                    code.extend([(addr >> 8) & 0xFF, addr & 0xFF, reg])
+                elif op == "LOADIND":
+                    reg_dest = parse_register(operands[0], line_num); code.append(reg_dest)
+                elif op == "STOREIND":
+                    reg_src = parse_register(operands[0], line_num); code.append(reg_src)
+                elif op == "MOV16":
+                    reg_pair = parse_register_pair(operands[0], line_num); val = parse_value(operands[1], line_num, 16)
+                    code.extend([reg_pair, (val >> 8) & 0xFF, val & 0xFF])
+                elif op == "ADD16":
+                    reg_pair1 = parse_register_pair(operands[0], line_num); reg_pair2 = parse_register_pair(operands[1], line_num)
+                    code.extend([reg_pair1, reg_pair2])
+                elif op == "LOADIX":
+                    reg_dest = parse_register(operands[0], line_num)
+                    reg_pair, offset, _ = parse_indexed_operand(operands[1], line_num)
+                    code.extend([reg_dest, reg_pair, offset])
+                elif op == "STOREIX":
+                    reg_pair, offset, _ = parse_indexed_operand(operands[0], line_num)
+                    reg_src = parse_register(operands[1], line_num)
+                    code.extend([reg_pair, offset, reg_src])
+                elif op == "LOADSP":
+                    reg_dest = parse_register(operands[0], line_num)
+                    _, offset, _ = parse_indexed_operand(operands[1], line_num)
+                    code.extend([reg_dest, offset])
 
-                generated_size = len( code ) - start_len
-                if generated_size != expected_size:
-                     print( f"Internal Warning (Line {line_num}): Size mismatch for {op}. Expected {expected_size}, generated {generated_size}." )
-            except ValueError as e:
-                 print( f"Assembly Error (Line {line_num}): {e} - Instruction: '{op} {', '.join( operands )}'" )
-                 return None
+            except (TypeError, ValueError) as e:
+                print(f"Assembly Error (Line {line_num}): Malformed operands for '{op}'. Details: {e}"); return None
 
-        print(f"[Assembler Pass 2] Completed. Final code size: {len( code )} bytes.")
+        print(f"[Assembler Pass 2] Completed. Final code size: {len(code)} bytes.")
         return code
 
 class CPU:
     def __init__( self, memory_size, stack_size, gui=None, update_callback=None ):
-        self.memory_size = memory_size
-        self.stack_size = stack_size
-        self.memory = bytearray( self.memory_size )
-        self.registers = { "PC": 0, "SP": self.memory_size, "R0": 0, "R1": 0, "R2": 0, "R3": 0, "R4": 0 }
-        self.flags = { 'Z': 0, 'C': 0, 'N': 0 }
-        self.screen_width = 100
-        self.screen_height = 100
+        self.memory_size = memory_size; self.stack_size = stack_size
+        self.memory = bytearray(self.memory_size)
+        self.registers = {"PC": 0, "SP": self.memory_size, "R0": 0, "R1": 0, "R2": 0, "R3": 0, "R4": 0}
+        self.flags = {'Z': 0, 'C': 0, 'N': 0}
+        self.screen_width = 100; self.screen_height = 100
 
-        # --- MEMORY MAP ---
-        self.stack_base = self.memory_size # 65535, 0xFFFF (assuming default settings)
-        self.stack_limit = self.memory_size - self.stack_size # 65023, 0xFFDF
-        self.screen_address = self.stack_limit - ( 100 * 100 ) # 55023, 0xD6EF
-        self.keyboard_data_address = self.screen_address - 1 # 55022, 0xD6EE
-        self.keyboard_status_address = self.screen_address - 2 # 55021, 0xD6ED
-        self.font_addr = self.keyboard_status_address - 760 # 54261, 0xD3F5
-        # --- END MEMORY MAP ---
+        self.stack_base = self.memory_size
+        self.stack_limit = self.memory_size - self.stack_size
+        self.screen_address = self.stack_limit - (self.screen_width * self.screen_height)
+        self.keyboard_data_address = self.screen_address - 1
+        self.keyboard_status_address = self.screen_address - 2
+        self.font_addr = self.keyboard_status_address - 760
 
-        self.running = False
-        self.stop_event = threading.Event()
-        self.gui = gui
-        self.update_callback = update_callback
-        self.instructions_per_check = 10000000
+        self.running = False; self.stop_event = threading.Event()
+        self.gui = gui; self.update_callback = update_callback
+        self.instructions_per_check = 100000
 
-        self.register_names = {
-             0x10: "R0", 0x11: "R1", 0x12: "R2", 0x13: "R3", 0x14: "R4"
-        }
-        self.register_codes = { v: k for k, v in self.register_names.items() }
+        self.register_names = {0x10: "R0", 0x11: "R1", 0x12: "R2", 0x13: "R3", 0x14: "R4"}
+        self.register_pair_names = {0xA0: ("R0", "R1"), 0xA2: ("R2", "R3")}
 
-    def _set_flags( self, result, carry_val=None ):
-        result &= 0xFF; self.flags[ 'Z' ] = 1 if result == 0 else 0
-        self.flags[ 'N' ] = 1 if ( result & 0x80 ) else 0
-        if carry_val is not None: self.flags[ 'C' ] = 1 if carry_val else 0
+    def _set_flags(self, result, is_16bit=False):
+        mask = 0xFFFF if is_16bit else 0xFF
+        sign_bit = 0x8000 if is_16bit else 0x80
+        self.flags['Z'] = 1 if (result & mask) == 0 else 0
+        self.flags['N'] = 1 if (result & sign_bit) else 0
 
-    def _check_stack_push( self, bytes_to_push=1 ):
-        if self.registers[ 'SP' ] - bytes_to_push < self.stack_limit:
-            print( f"Stack Overflow Error. Halting." ); self.running = False; return False
+    def _set_carry(self, val): self.flags['C'] = 1 if val else 0
+
+    def _check_stack_op(self, size, is_push):
+        new_sp = self.registers['SP'] - size if is_push else self.registers['SP'] + size
+        if not (self.stack_limit <= new_sp <= self.stack_base):
+            print(f"Stack {'Overflow' if is_push else 'Underflow'} Error. Halting."); self.running = False; return False
         return True
 
-    def _check_stack_pop( self, bytes_to_pop=1 ):
-        if self.registers[ 'SP' ] + bytes_to_pop > self.stack_base:
-             print( f"Stack Underflow Error. Halting." ); self.running = False; return False
-        if self.registers[ 'SP' ] < self.stack_limit or self.registers[ 'SP' ] >= self.stack_base:
-             print( f"Stack Invalid SP Error. Halting." ); self.running = False; return False
-        return True
-
-    def load_program( self, program_code, start_address ):
-        if start_address + len( program_code ) > len( self.memory ): return False
-        for i, byte in enumerate( program_code ): self.memory[ start_address + i ] = byte & 255
+    def load_program(self, program_code, start_address):
+        if start_address + len(program_code) > len(self.memory): return False
+        self.memory[start_address:start_address + len(program_code)] = program_code
         return True
 
     def execute_instruction( self ):
         if self.stop_event.is_set(): self.running = False; return
-        pc = self.registers[ "PC" ]
-        if not ( 0 <= pc < self.memory_size ):
-            print( f"PC Error. Halting." ); self.running = False; return
+        pc = self.registers["PC"]
+        if not (0 <= pc < self.memory_size):
+            print(f"PC Error. Halting."); self.running = False; return
 
-        instruction = self.memory[ pc ]
+        instruction = self.memory[pc]
         pc_increment = 1
 
-        def fetch_addr16( offset=1 ):
-            if pc + offset + 1 < self.memory_size:
-                hi = self.memory[ pc + offset ]; lo = self.memory[ pc + offset + 1 ]; return ( hi << 8 ) | lo
-            print( f"Fetch Addr16 bounds error. Halting." ); self.running = False; return None
+        def fetch(offset=1, num_bytes=1):
+            if pc + offset + num_bytes > self.memory_size:
+                print(f"Fetch bounds error at PC=0x{pc:04X}. Halting.")
+                self.running = False; return None
+            if num_bytes == 1: return self.memory[pc + offset]
+            return self.memory[pc + offset : pc + offset + num_bytes]
 
-        def fetch_reg_code( offset=1 ):
-            if pc + offset < self.memory_size:
-                 code = self.memory[ pc + offset ]
-                 if code in self.register_names: return code
-                 else: print( f"Invalid register code 0x{code:02X}. Halting." ); self.running = False; return None
-            print( f"Fetch RegCode bounds error. Halting." ); self.running = False; return None
+        def fetch_reg_name(offset=1):
+            code = fetch(offset)
+            if code is None: return None
+            name = self.register_names.get(code)
+            if name is None: print(f"Invalid register code 0x{code:02X} at PC=0x{pc:04X}. Halting."); self.running = False
+            return name
 
-        def fetch_imm8( offset=1 ):
-             if pc + offset < self.memory_size: return self.memory[ pc + offset ]
-             print( f"Fetch Imm8 bounds error. Halting." ); self.running = False; return None
+        def fetch_pair_names(offset=1):
+            code = fetch(offset)
+            if code is None: return None
+            names = self.register_pair_names.get(code)
+            if names is None: print(f"Invalid register pair code 0x{code:02X} at PC=0x{pc:04X}. Halting."); self.running = False
+            return names
+
+        def fetch_addr16(offset=1):
+            data = fetch(offset, 2)
+            if data is None: return None
+            return (data[0] << 8) | data[1]
 
         try:
-            if instruction == 0x00: # NOP
-                pass
-            elif instruction == 0x01: # INC Reg
-                reg_code = fetch_reg_code( 1 )
-                if reg_code is not None: reg_name = self.register_names[ reg_code ]; val = self.registers[ reg_name ]; result = ( val + 1 ) & 0xFF; self._set_flags( result ); self.registers[ reg_name ] = result; pc_increment = 2
-            elif instruction == 0x02: # DEC Reg
-                reg_code = fetch_reg_code( 1 )
-                if reg_code is not None: reg_name = self.register_names[ reg_code ]; val = self.registers[ reg_name ]; result = ( val - 1 ) & 0xFF; self._set_flags( result ); self.registers[ reg_name ] = result; pc_increment = 2
-            elif instruction == 0x03: # MOV Reg1, Reg2
-                reg1 = fetch_reg_code( 1 ); reg2 = fetch_reg_code( 2 )
-                if reg1 is not None and reg2 is not None: result = self.registers[ self.register_names[ reg2 ] ]; self.registers[ self.register_names[ reg1 ] ] = result; self._set_flags( result ); pc_increment = 3
-            elif instruction == 0x04: # ADD Reg1, Reg2
-                reg1 = fetch_reg_code( 1 ); reg2 = fetch_reg_code( 2 )
-                if reg1 is not None and reg2 is not None: val1 = self.registers[ self.register_names[ reg1 ] ]; val2 = self.registers[ self.register_names[ reg2 ] ]; res16 = val1 + val2; res8 = res16 & 0xFF; carry = 1 if res16 > 0xFF else 0; self._set_flags( res8, carry ); self.registers[ self.register_names[ reg1 ] ] = res8; pc_increment = 3
-            elif instruction == 0x05: # SUB Reg1, Reg2
-                reg1 = fetch_reg_code( 1 ); reg2 = fetch_reg_code( 2 )
-                if reg1 is not None and reg2 is not None: val1 = self.registers[ self.register_names[ reg1 ] ]; val2 = self.registers[ self.register_names[ reg2 ] ]; res8 = ( val1 - val2 ) & 0xFF; carry = 1 if val1 >= val2 else 0; self._set_flags( res8, carry ); self.registers[ self.register_names[ reg1 ] ] = res8; pc_increment = 3
-            elif instruction == 0x06: # JMP Addr16
-                addr = fetch_addr16( 1 )
-                if addr is not None: self.registers[ "PC" ] = addr; pc_increment = 0
-            elif instruction == 0x07: # STORE Addr16, Reg
-                address = fetch_addr16( 1 ); reg_code = fetch_reg_code( 3 )
-                if address is not None and reg_code is not None:
-                    if 0 <= address < self.memory_size:
-                        val = self.registers[ self.register_names[ reg_code ] ]; self.memory[ address ] = val
-                        if self.screen_address <= address < self.screen_address + ( self.screen_width * self.screen_height ):
-                            if self.gui: self.gui.update_pixel( ( address - self.screen_address ) % self.screen_width, ( address - self.screen_address ) // self.screen_width, val )
-                        pc_increment = 4
-                    else: print( f"STORE bounds error. Halting." ); self.running = False; pc_increment = 0
-            elif instruction == 0x08: # MOVI Reg, Imm8
-                reg = fetch_reg_code( 1 ); imm = fetch_imm8( 2 )
-                if reg is not None and imm is not None: self.registers[ self.register_names[ reg ] ] = imm; self._set_flags( imm ); pc_increment = 3
-            elif instruction == 0x09: # ADDI Reg, Imm8
-                reg = fetch_reg_code( 1 ); imm = fetch_imm8( 2 )
-                if reg is not None and imm is not None: val1 = self.registers[ self.register_names[ reg ] ]; res16 = val1 + imm; res8 = res16 & 0xFF; carry = 1 if res16 > 0xFF else 0; self._set_flags( res8, carry ); self.registers[ self.register_names[ reg ] ] = res8; pc_increment = 3
-            elif instruction == 0x0A: # SUBI Reg, Imm8
-                reg = fetch_reg_code( 1 ); imm = fetch_imm8( 2 )
-                if reg is not None and imm is not None: val1 = self.registers[ self.register_names[ reg ] ]; res8 = ( val1 - imm ) & 0xFF; carry = 1 if val1 >= imm else 0; self._set_flags( res8, carry ); self.registers[ self.register_names[ reg ] ] = res8; pc_increment = 3
-            elif instruction == 0x0B: # LOAD Reg, Addr16
-                reg = fetch_reg_code( 1 ); addr = fetch_addr16( 2 )
-                if reg is not None and addr is not None:
-                    if 0 <= addr < self.memory_size:
-                        val = self.memory[ addr ]
-                        self.registers[ self.register_names[ reg ] ] = val
-                        self._set_flags( val )
-                        pc_increment = 4
-                    else:
-                        print( f"LOAD bounds error. Halting." )
-                        self.running = False
-                        pc_increment = 0
-            elif instruction == 0x0C: # LOADI RegData, [RegAddr]
-                reg_d = fetch_reg_code( 1 ); reg_a = fetch_reg_code( 2 )
-                if reg_d is not None and reg_a is not None: addr = self.registers[ self.register_names[ reg_a ] ]; val = self.memory[ addr ]; self.registers[ self.register_names[ reg_d ] ] = val; self._set_flags( val ); pc_increment = 3
-            elif instruction == 0x0D: # STOREI [RegAddr], RegData
-                reg_a = fetch_reg_code( 1 ); reg_d = fetch_reg_code( 2 )
-                if reg_a is not None and reg_d is not None: addr = self.registers[ self.register_names[ reg_a ] ]; val = self.registers[ self.register_names[ reg_d ] ]; self.memory[ addr ] = val; pc_increment = 3
-            elif instruction == 0x0E: # CMP Reg1, Reg2
-                reg1 = fetch_reg_code( 1 ); reg2 = fetch_reg_code( 2 )
-                if reg1 is not None and reg2 is not None: val1 = self.registers[ self.register_names[ reg1 ] ]; val2 = self.registers[ self.register_names[ reg2 ] ]; res8 = ( val1 - val2 ) & 0xFF; carry = 1 if val1 >= val2 else 0; self._set_flags( res8, carry ); pc_increment = 3
-            elif instruction == 0x0F: # CMPI Reg, Imm8
-                reg = fetch_reg_code( 1 ); imm = fetch_imm8( 2 )
-                if reg is not None and imm is not None: val1 = self.registers[ self.register_names[ reg ] ]; res8 = ( val1 - imm ) & 0xFF; carry = 1 if val1 >= imm else 0; self._set_flags( res8, carry ); pc_increment = 3
-            elif instruction == 0x15: # STOREIND Rm
-                reg_code = fetch_reg_code( 1 )
-                if reg_code is not None:
-                    addr_hi = self.registers[ 'R0' ]; addr_lo = self.registers[ 'R1' ]; address = ( addr_hi << 8 ) | addr_lo
-                    if 0 <= address < self.memory_size:
-                        data = self.registers[ self.register_names[ reg_code ] ]; self.memory[ address ] = data
-                        if self.screen_address <= address < self.screen_address + ( self.screen_width * self.screen_height ):
-                            if self.gui: self.gui.update_pixel( ( address - self.screen_address ) % self.screen_width, ( address - self.screen_address ) // self.screen_width, data )
-                        pc_increment = 2
-                    else: print( f"STOREIND bounds error. Halting." ); self.running = False; pc_increment = 0
-            elif instruction == 0x16: # LOADIND Rm
-                reg_code = fetch_reg_code( 1 )
-                if reg_code is not None:
-                    addr_hi = self.registers[ 'R0' ]; addr_lo = self.registers[ 'R1' ]; address = ( addr_hi << 8 ) | addr_lo
-                    if 0 <= address < self.memory_size:
-                        data = self.memory[ address ]; self.registers[ self.register_names[ reg_code ] ] = data; self._set_flags( data )
-                        pc_increment = 2
-                    else: print( f"LOADIND bounds error. Halting." ); self.running = False; pc_increment = 0
-            elif instruction == 0x20: # PUSH Reg
-                reg = fetch_reg_code( 1 )
-                if reg is not None and self._check_stack_push( 1 ): val = self.registers[ self.register_names[ reg ] ]; self.registers[ 'SP' ] -= 1; self.memory[ self.registers[ 'SP' ] ] = val; pc_increment = 2
-            elif instruction == 0x21: # POP Reg
-                reg = fetch_reg_code( 1 )
-                if reg is not None and self._check_stack_pop( 1 ): val = self.memory[ self.registers[ 'SP' ] ]; self.registers[ 'SP' ] += 1; self.registers[ self.register_names[ reg ] ] = val; self._set_flags( val ); pc_increment = 2
-            elif instruction == 0x22: # CALL Addr16
-                addr = fetch_addr16( 1 )
-                if addr is not None and self._check_stack_push( 2 ): ret_addr = ( pc + 3 ) & 0xFFFF; self.registers[ 'SP' ] -= 1; self.memory[ self.registers[ 'SP' ] ] = ( ret_addr >> 8 ) & 0xFF; self.registers[ 'SP' ] -= 1; self.memory[ self.registers[ 'SP' ] ] = ret_addr & 0xFF; self.registers[ 'PC' ] = addr; pc_increment = 0
-            elif instruction == 0x23: # RET
-                if self._check_stack_pop( 2 ): addr_lo = self.memory[ self.registers[ 'SP' ] ]; self.registers[ 'SP' ] += 1; addr_hi = self.memory[ self.registers[ 'SP' ] ]; self.registers[ 'SP' ] += 1; ret_addr = ( addr_hi << 8 ) | addr_lo; self.registers[ 'PC' ] = ret_addr; pc_increment = 0
-            elif 0x30 <= instruction <= 0x35: # Conditional Jumps
-                cond = False
-                if instruction == 0x30: cond = ( self.flags[ 'Z' ] == 1 ) # JZ
-                elif instruction == 0x31: cond = ( self.flags[ 'Z' ] == 0 ) # JNZ
-                elif instruction == 0x32: cond = (self.flags[ 'C' ] == 1) # JC
-                elif instruction == 0x33: cond = (self.flags[ 'C' ] == 0) # JNC
-                elif instruction == 0x34: cond = (self.flags[ 'N' ] == 1) # JN
-                elif instruction == 0x35: cond = (self.flags[ 'N' ] == 0) # JNN
-                addr = fetch_addr16( 1 )
-                if addr is not None:
-                    if cond: self.registers[ 'PC' ] = addr; pc_increment = 0
-                    else: pc_increment = 3
-            elif instruction == 0xFF: # HALT
-                self.running = False; pc_increment = 0
-            else:
-                print( f"Unknown instruction 0x{instruction:02X}. Halting." ); self.running = False; pc_increment = 0
+            if instruction == 0x00: pc_increment = 1 # NOP
+            elif instruction == 0x01: reg = fetch_reg_name(); val = self.registers[reg]; res = (val + 1) & 0xFF; self._set_flags(res); self.registers[reg] = res; pc_increment = 2 # INC
+            elif instruction == 0x02: reg = fetch_reg_name(); val = self.registers[reg]; res = (val - 1) & 0xFF; self._set_flags(res); self.registers[reg] = res; pc_increment = 2 # DEC
+            elif instruction == 0x03: r1, r2 = fetch_reg_name(1), fetch_reg_name(2); res = self.registers[r2]; self.registers[r1] = res; self._set_flags(res); pc_increment = 3 # MOV
+            elif instruction == 0x04: r1,r2=fetch_reg_name(1),fetch_reg_name(2); v1=self.registers[r1];v2=self.registers[r2]; res16=v1+v2; self._set_carry(res16>0xFF); res8=res16&0xFF; self._set_flags(res8); self.registers[r1]=res8; pc_increment=3 # ADD
+            elif instruction == 0x05: r1,r2=fetch_reg_name(1),fetch_reg_name(2); v1=self.registers[r1];v2=self.registers[r2]; self._set_carry(v1>=v2); res8=(v1-v2)&0xFF; self._set_flags(res8); self.registers[r1]=res8; pc_increment=3 # SUB
+            elif instruction == 0x06: addr = fetch_addr16(); self.registers["PC"] = addr; pc_increment = 0 # JMP
+            elif instruction == 0x07: addr,reg=fetch_addr16(1),fetch_reg_name(3); self.memory[addr] = self.registers[reg]; pc_increment = 4 # STORE
+            elif instruction == 0x08: reg,val=fetch_reg_name(1),fetch(2); self.registers[reg]=val; self._set_flags(val); pc_increment = 3 # MOVI
+            elif instruction == 0x09: reg,v2=fetch_reg_name(1),fetch(2); v1=self.registers[reg]; res16=v1+v2; self._set_carry(res16>0xFF); res8=res16&0xFF; self._set_flags(res8); self.registers[reg]=res8; pc_increment = 3 # ADDI
+            elif instruction == 0x0A: reg,v2=fetch_reg_name(1),fetch(2); v1=self.registers[reg]; self._set_carry(v1>=v2); res8=(v1-v2)&0xFF; self._set_flags(res8); self.registers[reg]=res8; pc_increment = 3 # SUBI
+            elif instruction == 0x0B: reg,addr=fetch_reg_name(1),fetch_addr16(2); val=self.memory[addr]; self.registers[reg]=val; self._set_flags(val); pc_increment = 4 # LOAD
+            elif instruction == 0x0E: r1,r2=fetch_reg_name(1),fetch_reg_name(2); v1=self.registers[r1];v2=self.registers[r2]; self._set_carry(v1>=v2); res8=(v1-v2)&0xFF; self._set_flags(res8); pc_increment = 3 # CMP
+            elif instruction == 0x0F: reg,v2=fetch_reg_name(1),fetch(2); v1=self.registers[reg]; self._set_carry(v1>=v2); res8=(v1-v2)&0xFF; self._set_flags(res8); pc_increment = 3 # CMPI
+            elif instruction == 0x15: reg=fetch_reg_name(); addr=(self.registers["R0"]<<8)|self.registers["R1"]; self.memory[addr]=self.registers[reg]; pc_increment = 2 # STOREIND
+            elif instruction == 0x16: reg=fetch_reg_name(); addr=(self.registers["R0"]<<8)|self.registers["R1"]; val=self.memory[addr]; self.registers[reg]=val; self._set_flags(val); pc_increment = 2 # LOADIND
+            elif instruction == 0x20: reg=fetch_reg_name(); self._check_stack_op(1,True); self.registers["SP"]-=1; self.memory[self.registers["SP"]]=self.registers[reg]; pc_increment = 2 # PUSH
+            elif instruction == 0x21: reg=fetch_reg_name(); self._check_stack_op(1,False); val=self.memory[self.registers["SP"]]; self.registers[reg]=val; self.registers["SP"]+=1; self._set_flags(val); pc_increment = 2 # POP
+            elif instruction == 0x22: addr=fetch_addr16(); self._check_stack_op(2,True); ret=(pc+3)&0xFFFF; self.registers["SP"]-=2; self.memory[self.registers["SP"]]=(ret>>8)&0xFF; self.memory[self.registers["SP"]+1]=ret&0xFF; self.registers["PC"]=addr; pc_increment=0 # CALL
+            elif instruction == 0x23: self._check_stack_op(2,False); hi=self.memory[self.registers["SP"]]; lo=self.memory[self.registers["SP"]+1]; self.registers["SP"]+=2; self.registers["PC"]=(hi<<8)|lo; pc_increment=0 # RET
+            
+            elif 0x30 <= instruction <= 0x35:
+                cond=False; addr=fetch_addr16()
+                if   instruction == 0x30: cond=(self.flags['Z']==1) # JZ
+                elif instruction == 0x31: cond=(self.flags['Z']==0) # JNZ
+                elif instruction == 0x32: cond=(self.flags['C']==1) # JC
+                elif instruction == 0x33: cond=(self.flags['C']==0) # JNC
+                elif instruction == 0x34: cond=(self.flags['N']==1) # JN
+                elif instruction == 0x35: cond=(self.flags['N']==0) # JNN
+                if cond: self.registers["PC"]=addr; pc_increment=0
+                else: pc_increment=3
+            
+            elif instruction == 0x40: r1,r2=fetch_reg_name(1),fetch_reg_name(2); res=self.registers[r1]&self.registers[r2]; self._set_flags(res); self.registers[r1]=res; pc_increment=3 # AND
+            elif instruction == 0x41: r1,r2=fetch_reg_name(1),fetch_reg_name(2); res=self.registers[r1]|self.registers[r2]; self._set_flags(res); self.registers[r1]=res; pc_increment=3 # OR
+            elif instruction == 0x42: r1,r2=fetch_reg_name(1),fetch_reg_name(2); res=self.registers[r1]^self.registers[r2]; self._set_flags(res); self.registers[r1]=res; pc_increment=3 # XOR
+            elif instruction == 0x43: reg=fetch_reg_name(); res=(~self.registers[reg])&0xFF; self._set_flags(res); self.registers[reg]=res; pc_increment=2 # NOT
+            elif instruction == 0x44: reg,v2=fetch_reg_name(1),fetch(2); res=self.registers[reg]&v2; self._set_flags(res); self.registers[reg]=res; pc_increment=3 # ANDI
+            elif instruction == 0x45: reg,v2=fetch_reg_name(1),fetch(2); res=self.registers[reg]|v2; self._set_flags(res); self.registers[reg]=res; pc_increment=3 # ORI
+            elif instruction == 0x46: reg,v2=fetch_reg_name(1),fetch(2); res=self.registers[reg]^v2; self._set_flags(res); self.registers[reg]=res; pc_increment=3 # XORI
+            
+            elif instruction == 0x47: # SHL
+                reg, shifts = fetch_reg_name(1), fetch(2)
+                if reg and shifts is not None:
+                    val = self.registers[reg]; carry = 0
+                    for _ in range(shifts):
+                        carry = 1 if (val & 0x80) else 0
+                        val = (val << 1) & 0xFF
+                    self._set_carry(carry); self.registers[reg]=val; self._set_flags(val); pc_increment=3
+            elif instruction == 0x48: # SHR
+                reg, shifts = fetch_reg_name(1), fetch(2)
+                if reg and shifts is not None:
+                    val = self.registers[reg]; carry = 0
+                    for _ in range(shifts):
+                        carry = 1 if (val & 0x01) else 0
+                        val >>= 1
+                    self._set_carry(carry); self.registers[reg]=val; self._set_flags(val); pc_increment=3
+            
+            elif instruction == 0x50: r1,r2=fetch_reg_name(1),fetch_reg_name(2); v1=self.registers[r1];v2=self.registers[r2]; res16=v1*v2; self._set_carry(res16>0xFF); res8=res16&0xFF; self._set_flags(res8); self.registers[r1]=res8; pc_increment=3 # MUL
+            elif instruction == 0x51: (r_hi,r_lo),val=fetch_pair_names(1),fetch_addr16(2); self.registers[r_hi]=(val>>8)&0xFF; self.registers[r_lo]=val&0xFF; pc_increment=4 # MOV16
+            elif instruction == 0x52: (d_hi,d_lo),(s_hi,s_lo)=fetch_pair_names(1),fetch_pair_names(2); v1=(self.registers[d_hi]<<8)|self.registers[d_lo]; v2=(self.registers[s_hi]<<8)|self.registers[s_lo]; res32=v1+v2; self._set_carry(res32>0xFFFF); res16=res32&0xFFFF; self._set_flags(res16,True); self.registers[d_hi]=(res16>>8)&0xFF; self.registers[d_lo]=res16&0xFF; pc_increment=3 # ADD16
+            elif instruction == 0x53: self._check_stack_op(5,True); self.registers["SP"]-=5; regs=["R0","R1","R2","R3","R4"]; [self.memory.__setitem__(self.registers["SP"]+i, self.registers[r]) for i,r in enumerate(regs)]; pc_increment=1 # PUSHA
+            elif instruction == 0x54: self._check_stack_op(5,False); regs=["R0","R1","R2","R3","R4"]; [self.registers.__setitem__(r, self.memory[self.registers["SP"]+i]) for i,r in enumerate(regs)]; self.registers["SP"]+=5; pc_increment=1 # POPA
+            elif instruction == 0x55: r_dest,(p_hi,p_lo),offset=fetch_reg_name(1),fetch_pair_names(2),fetch(3); base=(self.registers[p_hi]<<8)|self.registers[p_lo]; val=self.memory[base+offset]; self.registers[r_dest]=val; self._set_flags(val); pc_increment=4 # LOADIX
+            elif instruction == 0x56: (p_hi,p_lo),offset,r_src=fetch_pair_names(1),fetch(2),fetch_reg_name(3); base=(self.registers[p_hi]<<8)|self.registers[p_lo]; self.memory[base+offset]=self.registers[r_src]; pc_increment=4 # STOREIX
+            elif instruction == 0x57: r_dest,offset=fetch_reg_name(1),fetch(2); val=self.memory[self.registers["SP"]+offset]; self.registers[r_dest]=val; self._set_flags(val); pc_increment=3 # LOADSP
+            
+            elif instruction == 0xFF: self.running = False; pc_increment = 0 # HALT
+            else: print(f"Unknown instruction 0x{instruction:02X}. Halting."); self.running = False; pc_increment = 0
 
-        except Exception as e:
-            print( f"CRITICAL CPU ERROR during execution of 0x{instruction:02X} at PC=0x{pc:04X}: {e}" )
-            import traceback; traceback.print_exc()
-            self.running = False; pc_increment = 0
+        except (TypeError, IndexError, KeyError) as e:
+            print(f"CRITICAL CPU ERROR at PC=0x{pc:04X} (Op: 0x{instruction:02X}): {e}");
+            import traceback; traceback.print_exc(); self.running = False; pc_increment = 0
 
-        if self.running and pc_increment > 0:
-            self.registers["PC"] = ( pc + pc_increment ) & 0xFFFF
+        if self.running and pc_increment > 0: self.registers["PC"] = (pc + pc_increment) & 0xFFFF
         
     def run( self ):
         self.running = True; self.stop_event.clear()
-        instructions_executed_total = 0; instructions_since_last_check = 0
-        start_pc = self.registers[ 'PC' ]
-        print( f"CPU starting execution from PC=0x{start_pc:04X}" )
+        start_time = time.time()
         while self.running:
             self.execute_instruction()
-            if not self.running: break
-            instructions_executed_total += 1; instructions_since_last_check += 1
-            if instructions_since_last_check >= self.instructions_per_check:
-                if self.stop_event.is_set(): self.running = False
-                instructions_since_last_check = 0
-        final_pc = self.registers[ 'PC' ]
-        status = "Stopped by event." if self.stop_event.is_set() else "Halted normally or due to error."
-        print( f"CPU execution finished. {status} Final PC: 0x{final_pc:04X}. Total instructions executed: {instructions_executed_total}" )
+            if self.stop_event.is_set(): self.running = False
+        print(f"CPU execution finished. Final PC: 0x{self.registers['PC']:04X}.")
         if self.update_callback: self.update_callback()
-
+    
+    # The rest of the CPU and GUI classes remain the same...
     def get_stack_as_string( self, max_entries=8 ):
         stack_str = f"--- Stack Top (SP=0x{self.registers[ 'SP' ]:04X}) ---\n"; count = 0
         start_addr = self.registers[ 'SP' ]; end_addr = min( self.stack_base, start_addr + max_entries )
@@ -527,80 +457,74 @@ class SimulatorGUI:
                      if event.key == pygame.K_HOME: print( "[GUI Action] 'home' key pressed." ); self.run_simulator_from_input()
                      elif event.key == pygame.K_DELETE: print( "[GUI Action] 'delete' key pressed." ); self.stop_simulator()
                      else:
-                        # --- KEYBOARD INPUT HANDLING ---
-                        # Check if the CPU is ready for a new key
                         if self.cpu.memory[self.cpu.keyboard_status_address] == 0:
-                            # Check for valid, printable ASCII characters
                             if event.unicode and 32 <= ord(event.unicode) <= 126 or event.key == pygame.K_RETURN:
-                                key_code = ord(event.unicode) if event.unicode else 13 # Use 13 for Enter
+                                key_code = ord(event.unicode) if event.unicode else 13
                                 self.cpu.memory[self.cpu.keyboard_data_address] = key_code
-                                self.cpu.memory[self.cpu.keyboard_status_address] = 1 # Set status to "key ready"
-                                print(f"[GUI Keyboard] Sent key '{chr(key_code)}' (0x{key_code:02X}) to CPU.")
-                                self.needs_display_update = True # Update memory view
-                            elif event.key == pygame.K_BACKSPACE:
-                                self.cpu.memory[self.cpu.keyboard_data_address] = 8 # ASCII for backspace
                                 self.cpu.memory[self.cpu.keyboard_status_address] = 1
-                                print(f"[GUI Keyboard] Sent key 'BACKSPACE' (0x08) to CPU.")
                                 self.needs_display_update = True
-                        else:
-                            print("[GUI Keyboard] CPU not ready for input (Status=1). Keypress ignored.")
-                        # --- END KEYBOARD INPUT HANDLING ---
+                            elif event.key == pygame.K_BACKSPACE:
+                                self.cpu.memory[self.cpu.keyboard_data_address] = 8
+                                self.cpu.memory[self.cpu.keyboard_status_address] = 1
+                                self.needs_display_update = True
 
             if not self.running_gui: break
-
-            if self.needs_display_update or self.cpu.running:
-                 self.update_gui_display()
-                 self.needs_display_update = False
-
+            if self.needs_display_update or (self.cpu_thread and self.cpu_thread.is_alive()):
+                 self.update_gui_display(); self.needs_display_update = False
             clock.tick( 60 )
-
-        print( "[GUI Loop] Exiting GUI loop." ); pygame.quit(); print( "[GUI Loop] Pygame quit." )
+        print( "[GUI Loop] Exiting GUI loop." ); pygame.quit()
 
     def run_simulator_from_input( self ):
-        print( "[Sim Control] Attempting to run simulator from input..." ); file_path = "program.asm"
-        print( f"[Sim Control] Looking for assembly file: {os.path.abspath( file_path )}" )
+        file_path = "program.asm"
         try:
              with open( file_path, "r" ) as f: code_text = f.read()
-             print( f"[Sim Control] Loaded code from {file_path}" )
-        except Exception as e: print( f"[Sim Control] ERROR reading {file_path}: {e}" ); self.status_message = f"Error reading {file_path}"; self.needs_display_update=True; return
+        except Exception as e: self.status_message = f"Error reading {file_path}"; self.needs_display_update=True; return
 
-        print( "[Sim Control] Assembling code..." ); assembler = Assembler(); assembled_code = assembler.assemble( code_text )
-        if assembled_code is None: print( "[Sim Control] Assembly failed." ); self.status_message = "Assembly Error."; self.needs_display_update=True; return
-        print( f"[Sim Control] Assembly successful. Len: {len( assembled_code )} bytes." )
+        assembler = Assembler(); assembled_code = assembler.assemble( code_text )
+        if assembled_code is None: self.status_message = "Assembly Error."; self.needs_display_update=True; return
 
-        if self.cpu_thread and self.cpu_thread.is_alive(): print( "[Sim Control] Stopping existing CPU thread..." ); self.stop_simulator()
+        if self.cpu_thread and self.cpu_thread.is_alive(): self.stop_simulator()
 
-        print( "[Sim Control] Resetting CPU..." ); start_address = 0
         self.cpu.__init__( self.cpu.memory_size, self.cpu.stack_size, self.cpu.gui, self.cpu.update_callback )
-        # Also clear the screen buffer on reset
         self.screen_surface.fill( ( 0,0,0 ) )
-        print( "[Sim Control] CPU state and screen reset." )
         
-        print( "[Sim Control] Loading font to memory..." )
         font = [ 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x00,0x18,0x00,0x00,0x36,0x36,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x5A,0x24,0x7E,0x24,0x5A,0x18,0x00,0x44,0x4A,0x52,0x4A,0x48,0x00,0x00,0x00,0x6C,0x54,0x28,0x1A,0x36,0x00,0x00,0x00,0x18,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x0C,0x18,0x30,0x60,0x60,0x00,0x00,0x00,0x60,0x30,0x18,0x0C,0x0C,0x00,0x00,0x00,0x00,0x36,0xDB,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x3E,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x30,0x00,0x00,0x00,0x00,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00,0x00,0x00,0x04,0x08,0x10,0x20,0x40,0x00,0x00,0x00,0x3C,0x42,0x42,0x42,0x42,0x42,0x3C,0x00,0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00,0x3C,0x42,0x02,0x04,0x08,0x10,0x7E,0x00,0x3C,0x42,0x02,0x1C,0x02,0x42,0x3C,0x00,0x04,0x0C,0x14,0x24,0x7E,0x04,0x04,0x00,0x7E,0x40,0x40,0x7C,0x02,0x02,0x3C,0x00,0x3C,0x40,0x40,0x7C,0x42,0x42,0x3C,0x00,0x40,0x40,0x20,0x10,0x08,0x08,0x08,0x00,0x3C,0x42,0x42,0x3C,0x42,0x42,0x3C,0x00,0x3C,0x42,0x42,0x3E,0x02,0x02,0x3C,0x00,0x00,0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00,0x00,0x18,0x18,0x00,0x18,0x18,0x30,0x04,0x08,0x10,0x20,0x10,0x08,0x04,0x00,0x00,0x3E,0x00,0x3E,0x00,0x3E,0x00,0x00,0x20,0x10,0x08,0x04,0x08,0x10,0x20,0x00,0x3C,0x42,0x02,0x0C,0x18,0x00,0x18,0x00,0x3C,0x42,0x4A,0x4A,0x4A,0x40,0x3C,0x00,0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00,0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0x00,0x3C,0x66,0x40,0x40,0x40,0x66,0x3C,0x00,0x7C,0x66,0x66,0x66,0x66,0x66,0x7C,0x00,0x7E,0x40,0x40,0x7C,0x40,0x40,0x7E,0x00,0x7E,0x40,0x40,0x7C,0x40,0x40,0x40,0x00,0x3C,0x66,0x40,0x40,0x4E,0x66,0x3C,0x00,0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x02,0x02,0x02,0x02,0x62,0x66,0x3C,0x00,0x66,0x6C,0x78,0x70,0x6C,0x66,0x66,0x00,0x40,0x40,0x40,0x40,0x40,0x40,0x7E,0x00,0x66,0x66,0x7E,0x7E,0x76,0x66,0x66,0x00,0x66,0x66,0x76,0x7E,0x6E,0x66,0x66,0x00,0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00,0x7C,0x66,0x66,0x7C,0x40,0x40,0x40,0x00,0x3C,0x66,0x66,0x66,0x6E,0x6C,0x3E,0x00,0x7C,0x66,0x66,0x7C,0x6C,0x66,0x66,0x00,0x3C,0x60,0x3C,0x06,0x3C,0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00,0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00,0x66,0x66,0x66,0x3C,0x66,0x66,0x66,0x00,0x66,0x3C,0x18,0x3C,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x18,0x18,0x00,0x00,0x00,0x7E,0x02,0x04,0x08,0x7E,0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x40,0x20,0x10,0x08,0x04,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x3C,0x66,0x00,0x00,0x00,0x00,0x00,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x30,0x18,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x3C,0x06,0x3E,0x66,0x66,0x3E,0x00,0x40,0x40,0x7C,0x66,0x66,0x66,0x7C,0x00,0x00,0x00,0x3C,0x60,0x60,0x60,0x3C,0x00,0x06,0x06,0x3E,0x66,0x66,0x66,0x3E,0x00,0x00,0x3C,0x66,0x7E,0x60,0x60,0x3C,0x00,0x1C,0x30,0x78,0x30,0x30,0x30,0x30,0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x66,0x3E,0x40,0x40,0x7C,0x66,0x66,0x66,0x66,0x00,0x00,0x38,0x18,0x18,0x18,0x18,0x3C,0x00,0x04,0x04,0x04,0x04,0x64,0x64,0x38,0x00,0x40,0x40,0x60,0x70,0x6C,0x66,0x66,0x00,0x38,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x00,0x00,0x7C,0x66,0x76,0x66,0x66,0x00,0x00,0x00,0x7C,0x66,0x66,0x66,0x66,0x00,0x00,0x00,0x3C,0x66,0x66,0x66,0x3C,0x00,0x00,0x7C,0x66,0x66,0x7C,0x40,0x40,0x40,0x00,0x3E,0x66,0x66,0x3E,0x06,0x06,0x06,0x00,0x00,0x7C,0x66,0x40,0x40,0x40,0x00,0x00,0x00,0x3E,0x06,0x3C,0x60,0x3E,0x00,0x38,0x18,0x18,0x78,0x18,0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x66,0x66,0x3E,0x00,0x00,0x00,0x66,0x66,0x3C,0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x76,0x7E,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x3C,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x3C,0x18,0x00,0x00,0x00,0x7E,0x04,0x08,0x10,0x7E,0x00,0x0C,0x18,0x18,0x7E,0x18,0x18,0x0C,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x30,0x18,0x18,0x7E,0x18,0x18,0x30,0x00,0x00,0x76,0xDB,0x00,0x00,0x00,0x00,0x00 ]
-        if self.cpu.load_program( font, self.cpu.font_addr ):
-            print( "[Sim Control] Font loaded." )
-        print( f"[Sim Control] Loading program @ 0x{start_address:04X}..." );
+        self.cpu.load_program( font, self.cpu.font_addr )
+        
+        start_address = 0
         if self.cpu.load_program( assembled_code, start_address ):
-            self.cpu.registers[ "PC" ] = start_address; print( "[Sim Control] Program loaded. Starting CPU thread..." )
+            self.cpu.registers[ "PC" ] = start_address
             self.status_message = f"Running from 0x{start_address:04X}..."; self.needs_display_update=True
             self.cpu_thread = threading.Thread( target=self.cpu.run, daemon=True ); self.cpu_thread.start()
-            print( "[Sim Control] CPU thread started." )
-        else: print( "[Sim Control] Error loading program." ); self.status_message = "Error loading program."; self.needs_display_update=True
+        else: self.status_message = "Error loading program."; self.needs_display_update=True
 
     def stop_simulator( self ):
-        print( "[Sim Control] Stop simulator requested." )
         if self.cpu_thread and self.cpu_thread.is_alive():
-            print( "[Sim Control] Signaling CPU thread stop..." ); self.cpu.stop_event.set()
+            self.cpu.stop_event.set()
             self.cpu_thread.join( timeout=1.0 )
-            if self.cpu_thread.is_alive(): print( "[Sim Control] WARNING: CPU join timeout!" )
-            else: print( "[Sim Control] CPU thread joined." )
-        else: print( "[Sim Control] CPU thread not running." )
-        self.status_message = "CPU Stopped."; self.needs_display_update=True
         self.cpu_thread = None
 
     def update_gui_display( self ):
+        # Scan the CPU's video memory and update the screen surface
+        screen_start_addr = self.cpu.screen_address
+        # Clear the surface with black only if needed, or handle per pixel
+        # self.screen_surface.fill((0, 0, 0))
+    
+        for row in range(self.screen_height):
+            for col in range(self.screen_width):
+                # Calculate the memory address for the current pixel
+                mem_addr = screen_start_addr + (row * self.screen_width) + col
+                color_index = self.cpu.memory[mem_addr]
+            
+                # Draw the pixel onto the surface
+                px, py = col * self.pixel_size, row * self.pixel_size
+                color = self.colors[color_index]
+                pygame.draw.rect(self.screen_surface, color, (px, py, self.pixel_size, self.pixel_size))
+
+        # Now blit the updated surface to the screen
         self.screen.blit( self.screen_surface, ( 0, 0 ) )
+
+        # --- The rest of the function (drawing the info panel) remains the same ---
         info_panel_rect = pygame.Rect( self.screen_width * self.pixel_size, 0, self.info_panel_width, self.total_height )
         pygame.draw.rect( self.screen, ( 50, 50, 50 ), info_panel_rect )
         info_x = self.screen_width * self.pixel_size + 10; y = 10
@@ -613,16 +537,16 @@ class SimulatorGUI:
         stack_title = self.font.render( "Stack:", True, ( 200,200,200 ) ); self.screen.blit( stack_title, ( info_x, y ) ); y += 18
         stack_lines = self.cpu.get_stack_as_string( max_entries = 6 ).splitlines(); stack_lines = stack_lines[ 1: ]
         for line in stack_lines:
-             surf = self.font_small.render( line, True, ( 255,255,255 ) ); self.screen.blit( surf, ( info_x, y ) ); y += 16
-             if y > self.total_height - 150: break
+            surf = self.font_small.render( line, True, ( 255,255,255 ) ); self.screen.blit( surf, ( info_x, y ) ); y += 16
+            if y > self.total_height - 150: break
         y += 5; mem_title = self.font.render( "Memory (Around PC):", True, ( 200,200,200 ) ); self.screen.blit( mem_title, ( info_x, y ) ); y += 18
         pc = self.cpu.registers.get( "PC", 0 ); mem_start = max( 0, pc - 8 ); mem_bytes = 48
         mem_lines = self.cpu.get_memory_as_string( mem_start, mem_bytes, bytes_per_line = 8 ).splitlines(); mem_lines = mem_lines[ 1: ]
         for line in mem_lines:
             color=( 255,255,255 ); is_pc_line = False
             try:
-                 line_addr = int( line.split( ':', 1 )[ 0 ], 16 );
-                 if line_addr <= pc < line_addr + 8: color=( 0,255,0 ); is_pc_line = True
+                line_addr = int( line.split( ':', 1 )[ 0 ], 16 );
+                if line_addr <= pc < line_addr + 8: color=( 0,255,0 ); is_pc_line = True
             except: pass
             pc_marker = " <-- PC" if is_pc_line else ""
             surf = self.font_small.render( line + pc_marker, True, color ); self.screen.blit( surf, ( info_x, y ) ); y += 16
@@ -641,4 +565,3 @@ if __name__ == "__main__":
     print( "[Main] Starting GUI event loop..." )
     gui.run_gui_loop()
     print( "[Main] GUI loop finished." )
-    print( "[Main] Script finished." )
