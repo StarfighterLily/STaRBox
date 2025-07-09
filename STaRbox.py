@@ -1215,6 +1215,9 @@ class SimulatorGUI:
         self.run_button_rect = pygame.Rect(info_x + button_width + button_spacing, button_y, button_width, button_height)
         self.stop_button_rect = pygame.Rect(info_x + (button_width + button_spacing) * 2, button_y, button_width, button_height)
         self.tk_root = tk.Tk(); self.tk_root.withdraw()
+        self.is_assembling = False
+        self.ASSEMBLY_COMPLETE_EVENT = pygame.USEREVENT + 1
+        self.ASSEMBLY_ERROR_EVENT = pygame.USEREVENT + 2
         print( "[GUI Init] Initialization complete." )
     def rebuild_memory_view(self):
         print("[GUI] Rebuilding memory view...")
@@ -1228,6 +1231,10 @@ class SimulatorGUI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     print( "[GUI Event] QUIT received." ); self.stop_simulator(); self.running_gui = False; break
+                elif event.type == self.ASSEMBLY_COMPLETE_EVENT:
+                    self._on_assembly_complete(event.file_path, event.code)
+                elif event.type == self.ASSEMBLY_ERROR_EVENT:
+                    self._on_assembly_error(event.message)
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
                         info_panel_x_start = self.screen_width * self.pixel_size
@@ -1248,23 +1255,89 @@ class SimulatorGUI:
                 self.info_dirty = True
             self.update_gui_display(); clock.tick( 60 )
         print( "[GUI Loop] Exiting GUI loop." ); pygame.quit()
-    def load_program_from_dialog(self):
-        file_path = filedialog.askopenfilename(title="Open Assembly File", filetypes=(("Assembly Files", "*.asm"), ("All files", "*.*")))
-        if not file_path: self.status_message = "File load cancelled."; self.info_dirty = True; return
+    def _assemble_worker(self, file_path, code_text):
         try:
-             with open( file_path, "r" ) as f: code_text = f.read()
-        except Exception as e: self.status_message = f"Error reading {os.path.basename(file_path)}"; self.info_dirty=True; return
-        assembler = Assembler()
-        assembled_code = assembler.assemble( code_text )
-        if assembled_code is None: self.status_message = "Assembly Error."; self.info_dirty=True; self.code_loaded = False; return
-        if self.cpu_thread and self.cpu_thread.is_alive(): self.stop_simulator()
-        self.cpu.__init__( self.cpu.memory_size, self.cpu.stack_size, self.cpu.gui, self.cpu.update_callback )
-        self.rebuild_memory_view(); self.vram_surface.fill( ( 0,0,0 ) )
-        if self.cpu.load_program(font_data, self.cpu.font_addr): print("[GUI Loop] Font loaded into memory.")
-        start_address = 0
-        if self.cpu.load_program( assembled_code, start_address ):
-            self.cpu.registers[ "PC" ] = 0; self.status_message = f"Loaded {os.path.basename(file_path)}. Ready."; self.code_loaded = True; self.info_dirty = True
-        else: self.status_message = "Error loading program."; self.code_loaded = False; self.info_dirty = True
+            assembler = Assembler()
+            assembled_code = assembler.assemble(code_text)
+            if assembled_code is None:
+                # Handle case where assemble() returns None without an exception
+                raise AssemblyError("Assembler returned no code.")
+
+            # Success: Post an event to the main thread with the results
+            completion_event = pygame.event.Event(self.ASSEMBLY_COMPLETE_EVENT, {
+                "file_path": file_path,
+                "code": assembled_code
+            })
+            pygame.event.post(completion_event)
+        except Exception as e:
+            # Failure: Post an error event to the main thread
+            error_event = pygame.event.Event(self.ASSEMBLY_ERROR_EVENT, {
+                "message": f"Assembly failed: {e}"
+            })
+            pygame.event.post(error_event)
+
+    # Handler for when assembly succeeds
+    def _on_assembly_complete(self, file_path, assembled_code):
+        if self.cpu_thread and self.cpu_thread.is_alive():
+            self.stop_simulator()
+
+        # Reset CPU and load the newly assembled code
+        self.cpu.__init__(self.cpu.memory_size, self.cpu.stack_size, self, self.update_gui_callback)
+        self.rebuild_memory_view()
+        self.vram_surface.fill((0, 0, 0))
+        self.cpu.load_program(font_data, self.cpu.font_addr)
+        
+        if self.cpu.load_program(assembled_code, 0):
+            self.cpu.registers["PC"] = 0
+            self.status_message = f"Loaded {os.path.basename(file_path)}. Ready."
+            self.code_loaded = True
+        else:
+            self.status_message = "Error: Program too large for memory."
+            self.code_loaded = False
+        
+        self.is_assembling = False
+        self.info_dirty = True
+
+    # Handler for when assembly fails
+    def _on_assembly_error(self, message):
+        self.status_message = message
+        self.code_loaded = False
+        self.is_assembling = False
+        self.info_dirty = True
+        
+    def load_program_from_dialog(self):
+        if self.is_assembling:
+            self.status_message = "Assembly already in progress."
+            self.info_dirty = True
+            return
+
+        file_path = filedialog.askopenfilename(title="Open Assembly File", filetypes=(("Assembly Files", "*.asm"), ("All files", "*.*")))
+        
+        # Bring window to focus (code from previous step)
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.SetForegroundWindow(pygame.display.get_wm_info()['window'])
+        else:
+            pygame.display.toggle_fullscreen()
+            pygame.display.toggle_fullscreen()
+
+        if not file_path:
+            return # User cancelled
+
+        try:
+            with open(file_path, "r") as f:
+                code_text = f.read()
+            
+            # Update status and start the background thread for assembly
+            self.is_assembling = True
+            self.info_dirty = True
+            self.status_message = f"Assembling {os.path.basename(file_path)}..."
+            threading.Thread(target=self._assemble_worker, args=(file_path, code_text), daemon=True).start()
+
+        except Exception as e:
+            self.status_message = f"Error reading file: {e}"
+            self.info_dirty = True
+            
     def run_cpu(self):
         if self.cpu_thread and self.cpu_thread.is_alive():
             self.status_message = "Simulator is already running."
@@ -1274,12 +1347,10 @@ class SimulatorGUI:
             self.status_message = "No program loaded."
             self.info_dirty = True
             return
-            
-        # --- START FIX: Reset CPU state before each run ---
+
         self.cpu.registers = {"PC": 0, "SP": self.cpu.memory_size}
         for i in range(10): self.cpu.registers[f"R{i}"] = 0
         self.cpu.flags = {'Z': 0, 'C': 0, 'N': 0, 'V': 0, 'A': 0, 'I': 0}
-        # --- END FIX ---
         
         self.status_message = f"Running from 0x{self.cpu.registers['PC']:04X}..."
         self.info_dirty = True
