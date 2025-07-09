@@ -100,7 +100,6 @@ def _fetch_val8(cpu, offset=1):
 
 
 # --- Concrete Instruction Classes ---
-
 class InvalidInstruction(Instruction):
     """A concrete class for unassigned opcodes."""
     def assemble(self, asm, operands, all_symbols):
@@ -113,7 +112,6 @@ class InvalidInstruction(Instruction):
         return 1
 
 # --- Group: No Operand Instructions ---
-
 class Nop(Instruction):
     mnemonic, opcode, size = "NOP", 0x00, 1
     def assemble(self, asm, operands, all_symbols):
@@ -1268,10 +1266,25 @@ class SimulatorGUI:
             self.cpu.registers[ "PC" ] = 0; self.status_message = f"Loaded {os.path.basename(file_path)}. Ready."; self.code_loaded = True; self.info_dirty = True
         else: self.status_message = "Error loading program."; self.code_loaded = False; self.info_dirty = True
     def run_cpu(self):
-        if self.cpu_thread and self.cpu_thread.is_alive(): self.status_message = "Simulator is already running."; self.info_dirty = True; return
-        if not self.code_loaded: self.status_message = "No program loaded."; self.info_dirty = True; return
-        self.status_message = f"Running from 0x{self.cpu.registers['PC']:04X}..."; self.info_dirty = True
-        self.cpu_thread = threading.Thread(target=self.cpu.run, daemon=True); self.cpu_thread.start()
+        if self.cpu_thread and self.cpu_thread.is_alive():
+            self.status_message = "Simulator is already running."
+            self.info_dirty = True
+            return
+        if not self.code_loaded:
+            self.status_message = "No program loaded."
+            self.info_dirty = True
+            return
+            
+        # --- START FIX: Reset CPU state before each run ---
+        self.cpu.registers = {"PC": 0, "SP": self.cpu.memory_size}
+        for i in range(10): self.cpu.registers[f"R{i}"] = 0
+        self.cpu.flags = {'Z': 0, 'C': 0, 'N': 0, 'V': 0, 'A': 0, 'I': 0}
+        # --- END FIX ---
+        
+        self.status_message = f"Running from 0x{self.cpu.registers['PC']:04X}..."
+        self.info_dirty = True
+        self.cpu_thread = threading.Thread(target=self.cpu.run, daemon=True)
+        self.cpu_thread.start()
     def stop_simulator( self ):
         if self.cpu_thread and self.cpu_thread.is_alive():
             self.cpu.stop_event.set(); self.cpu_thread.join( timeout=1.0 ); self.status_message = "Simulator stopped by user."; self.info_dirty = True
