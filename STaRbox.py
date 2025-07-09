@@ -5,144 +5,935 @@ import threading
 import time
 import os
 import re
+import tkinter as tk
+from tkinter import filedialog
+from abc import ABC, abstractmethod
+
+# --- FONT DATA ---
+font_data = [
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x00,0x18,0x00,0x00,
+    0x36,0x36,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x5A,0x24,0x7E,0x24,0x5A,0x18,0x00,
+    0x44,0x4A,0x52,0x4A,0x48,0x00,0x00,0x00,0x6C,0x54,0x28,0x1A,0x36,0x00,0x00,0x00,
+    0x18,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x0C,0x18,0x30,0x60,0x60,0x00,0x00,0x00,
+    0x60,0x30,0x18,0x0C,0x0C,0x00,0x00,0x00,0x00,0x36,0xDB,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x3E,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x30,0x00,
+    0x00,0x00,0x00,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,
+    0x00,0x00,0x00,0x04,0x08,0x10,0x20,0x40,0x00,0x00,0x00,0x3C,0x42,0x42,0x42,0x42,
+    0x42,0x3C,0x00,0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00,0x3C,0x42,0x02,0x04,0x08,
+    0x10,0x7E,0x00,0x3C,0x42,0x02,0x1C,0x02,0x42,0x3C,0x00,0x04,0x0C,0x14,0x24,0x7E,
+    0x04,0x04,0x00,0x7E,0x40,0x40,0x7C,0x02,0x02,0x3C,0x00,0x3C,0x40,0x40,0x7C,0x42,
+    0x42,0x3C,0x00,0x40,0x40,0x20,0x10,0x08,0x08,0x08,0x00,0x3C,0x42,0x42,0x3C,0x42,
+    0x42,0x3C,0x00,0x3C,0x42,0x42,0x3E,0x02,0x02,0x3C,0x00,0x00,0x00,0x18,0x18,0x00,
+    0x18,0x18,0x00,0x00,0x00,0x18,0x18,0x00,0x18,0x18,0x30,0x04,0x08,0x10,0x20,0x10,
+    0x08,0x04,0x00,0x00,0x3E,0x00,0x3E,0x00,0x3E,0x00,0x00,0x20,0x10,0x08,0x04,0x08,
+    0x10,0x20,0x00,0x3C,0x42,0x02,0x0C,0x18,0x00,0x18,0x00,0x3C,0x42,0x4A,0x4A,0x4A,
+    0x40,0x3C,0x00,0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00,0x7C,0x66,0x66,0x7C,0x66,
+    0x66,0x7C,0x00,0x3C,0x66,0x40,0x40,0x40,0x66,0x3C,0x00,0x7C,0x66,0x66,0x66,0x66,
+    0x66,0x7C,0x00,0x7E,0x40,0x40,0x7C,0x40,0x40,0x7E,0x00,0x7E,0x40,0x40,0x7C,0x40,
+    0x40,0x40,0x00,0x3C,0x66,0x40,0x40,0x4E,0x66,0x3C,0x00,0x66,0x66,0x66,0x7E,0x66,
+    0x66,0x66,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x02,0x02,0x02,0x02,0x62,
+    0x66,0x3C,0x00,0x66,0x6C,0x78,0x70,0x6C,0x66,0x66,0x00,0x40,0x40,0x40,0x40,0x40,
+    0x40,0x7E,0x00,0x66,0x66,0x7E,0x7E,0x76,0x66,0x66,0x00,0x66,0x66,0x76,0x7E,0x6E,
+    0x66,0x66,0x00,0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00,0x7C,0x66,0x66,0x7C,0x40,
+    0x40,0x40,0x00,0x3C,0x66,0x66,0x66,0x6E,0x6C,0x3E,0x00,0x7C,0x66,0x66,0x7C,0x6C,
+    0x66,0x66,0x00,0x3C,0x60,0x3C,0x06,0x3C,0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,
+    0x18,0x18,0x00,0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00,0x66,0x66,0x3C,0x18,0x3C,
+    0x66,0x66,0x00,0x66,0x66,0x66,0x3C,0x66,0x66,0x66,0x00,0x66,0x3C,0x18,0x3C,0x66,
+    0x00,0x00,0x00,0x66,0x3C,0x18,0x18,0x18,0x00,0x00,0x00,0x7E,0x02,0x04,0x08,0x7E,
+    0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x40,0x20,0x10,0x08,0x04,
+    0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x3C,0x66,0x00,0x00,
+    0x00,0x00,0x00,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x30,0x18,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x3C,0x06,0x3E,0x66,0x66,0x3E,0x00,0x40,0x40,0x7C,0x66,0x66,
+    0x66,0x7C,0x00,0x00,0x00,0x3C,0x60,0x60,0x60,0x3C,0x00,0x06,0x06,0x3E,0x66,0x66,
+    0x66,0x3E,0x00,0x00,0x3C,0x66,0x7E,0x60,0x60,0x3C,0x00,0x1C,0x30,0x78,0x30,0x30,
+    0x30,0x30,0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x66,0x3E,0x40,0x40,0x7C,0x66,0x66,
+    0x66,0x66,0x00,0x00,0x38,0x18,0x18,0x18,0x18,0x3C,0x00,0x04,0x04,0x04,0x04,0x64,
+    0x64,0x38,0x00,0x40,0x40,0x60,0x70,0x6C,0x66,0x66,0x00,0x38,0x18,0x18,0x18,0x18,
+    0x18,0x18,0x00,0x00,0x00,0x7C,0x66,0x76,0x66,0x66,0x00,0x00,0x00,0x7C,0x66,0x66,
+    0x66,0x66,0x00,0x00,0x00,0x3C,0x66,0x66,0x66,0x3C,0x00,0x00,0x7C,0x66,0x66,0x7C,
+    0x40,0x40,0x40,0x00,0x3E,0x66,0x66,0x3E,0x06,0x06,0x06,0x00,0x00,0x7C,0x66,0x40,
+    0x40,0x40,0x00,0x00,0x00,0x3E,0x06,0x3C,0x60,0x3E,0x00,0x38,0x18,0x18,0x78,0x18,
+    0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x66,0x66,0x3E,0x00,0x00,0x00,0x66,0x66,0x3C,
+    0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x76,0x7E,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,
+    0x3C,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x3C,0x18,0x00,0x00,0x00,0x7E,0x04,0x08,
+    0x10,0x7E,0x00,0x0C,0x18,0x18,0x7E,0x18,0x18,0x0C,0x00,0x18,0x18,0x18,0x18,0x18,
+    0x18,0x18,0x00,0x30,0x18,0x18,0x7E,0x18,0x18,0x30,0x00,0x00,0x76,0xDB,0x00,0x00,
+    0x00,0x00,0x00]
+
+# --- INSTRUCTION SET DEFINITION ---
+class AssemblyError(Exception):
+    pass
+
+class Instruction(ABC):
+    """Abstract Base Class for all instructions."""
+    mnemonic = "INVALID"
+    opcode = 0xFF
+    size = 0
+    
+    @abstractmethod
+    def assemble(self, asm, operands, all_symbols):
+        """Try to assemble the given operands. Return bytecode list or raise AssemblyError."""
+        pass
+
+    @abstractmethod
+    def execute(self, cpu):
+        """Execute the instruction. Return the number of bytes to increment PC."""
+        pass
+
+# --- Helper Methods for Instruction Classes ---
+def _fetch_reg_name(cpu, offset=1):
+    name = cpu.register_names.get(cpu.memory[cpu.registers["PC"] + offset])
+    if name is None: raise ValueError("Invalid register code.")
+    return name
+
+def _fetch_pair_names(cpu, offset=1):
+    names = cpu.register_pair_names.get(cpu.memory[cpu.registers["PC"] + offset])
+    if names is None: raise ValueError("Invalid register pair code.")
+    return names
+
+def _fetch_addr16(cpu, offset=1):
+    pc = cpu.registers["PC"]
+    return (cpu.memory[pc + offset] << 8) | cpu.memory[pc + offset + 1]
+
+def _fetch_val8(cpu, offset=1):
+    return cpu.memory[cpu.registers["PC"] + offset]
+
+
+# --- Concrete Instruction Classes ---
+
+class InvalidInstruction(Instruction):
+    """A concrete class for unassigned opcodes."""
+    def assemble(self, asm, operands, all_symbols):
+        raise AssemblyError("Cannot assemble an invalid instruction.")
+    def execute(self, cpu):
+        pc = cpu.registers["PC"]
+        opcode = cpu.memory[pc]
+        print(f"Unknown instruction 0x{opcode:02X} at PC=0x{pc:04X}. Halting.")
+        cpu.halted = True
+        return 1
+
+# --- Group: No Operand Instructions ---
+
+class Nop(Instruction):
+    mnemonic, opcode, size = "NOP", 0x00, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError("NOP takes no operands")
+        return [self.opcode]
+    def execute(self, cpu): return self.size
+
+class Hlt(Instruction):
+    mnemonic, opcode, size = "HLT", 0xFF, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError("HLT takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu.halted = True
+        return self.size
+
+class Ret(Instruction):
+    mnemonic, opcode, size = "RET", 0x23, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(2, False)
+        hi = cpu.memory[cpu.registers["SP"]]
+        lo = cpu.memory[cpu.registers["SP"] + 1]
+        cpu.registers["SP"] += 2
+        cpu.registers["PC"] = (hi << 8) | lo
+        return 0
+
+class PushA(Instruction):
+    mnemonic, opcode, size = "PUSHA", 0x53, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(10, True)
+        cpu.registers["SP"] -= 10
+        regs = [f"R{i}" for i in range(10)]
+        for i, r in enumerate(regs):
+            cpu.memory[cpu.registers["SP"] + i] = cpu.registers[r]
+        return self.size
+
+class PopA(Instruction):
+    mnemonic, opcode, size = "POPA", 0x54, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(10, False)
+        regs = [f"R{i}" for i in range(10)]
+        for i, r in enumerate(regs):
+            cpu.registers[r] = cpu.memory[cpu.registers["SP"] + i]
+        cpu.registers["SP"] += 10
+        return self.size
+
+class PushF(Instruction):
+    mnemonic, opcode, size = "PUSHF", 0x60, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(1, True)
+        cpu.registers["SP"] -= 1
+        cpu.memory[cpu.registers["SP"]] = cpu._pack_flags()
+        return self.size
+
+class PopF(Instruction):
+    mnemonic, opcode, size = "POPF", 0x61, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(1, False)
+        cpu._unpack_flags(cpu.memory[cpu.registers["SP"]])
+        cpu.registers["SP"] += 1
+        return self.size
+
+class Sti(Instruction):
+    mnemonic, opcode, size = "STI", 0x70, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu.flags['I'] = 1
+        return self.size
+
+class Cli(Instruction):
+    mnemonic, opcode, size = "CLI", 0x71, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu.flags['I'] = 0
+        return self.size
+
+class Iret(Instruction):
+    mnemonic, opcode, size = "IRET", 0x72, 1
+    def assemble(self, asm, operands, all_symbols):
+        if operands: raise AssemblyError(f"{self.mnemonic} takes no operands")
+        return [self.opcode]
+    def execute(self, cpu):
+        cpu._check_stack_op(3, False)
+        flags_val = cpu.memory[cpu.registers["SP"]]
+        pc_hi = cpu.memory[cpu.registers["SP"] + 1]
+        pc_lo = cpu.memory[cpu.registers["SP"] + 2]
+        cpu._unpack_flags(flags_val)
+        cpu.registers["PC"] = (pc_hi << 8) | pc_lo
+        cpu.registers["SP"] += 3
+        return 0
+
+# --- Group: Single Operand Instructions ---
+
+class IncReg(Instruction):
+    mnemonic, opcode, size = "INC", 0x01, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("INC requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        v1 = cpu.registers[reg]
+        res = (v1 + 1) & 0xFF
+        cpu._set_flags(res, v1=v1, v2=1)
+        cpu.registers[reg] = res
+        return self.size
+
+class DecReg(Instruction):
+    mnemonic, opcode, size = "DEC", 0x02, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("DEC requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        v1 = cpu.registers[reg]
+        res = (v1 - 1) & 0xFF
+        cpu._set_flags(res, v1=v1, v2=1, is_sub=True)
+        cpu.registers[reg] = res
+        return self.size
+
+class NotReg(Instruction):
+    mnemonic, opcode, size = "NOT", 0x43, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("NOT requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        res = (~cpu.registers[reg]) & 0xFF
+        cpu._set_flags(res)
+        cpu.registers[reg] = res
+        return self.size
+
+class PushReg(Instruction):
+    mnemonic, opcode, size = "PUSH", 0x20, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("PUSH requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        cpu._check_stack_op(1, True)
+        cpu.registers["SP"] -= 1
+        cpu.memory[cpu.registers["SP"]] = cpu.registers[reg]
+        return self.size
+
+class PopReg(Instruction):
+    mnemonic, opcode, size = "POP", 0x21, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("POP requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        cpu._check_stack_op(1, False)
+        val = cpu.memory[cpu.registers["SP"]]
+        cpu.registers[reg] = val
+        cpu.registers["SP"] += 1
+        cpu._set_flags(val)
+        return self.size
+
+class StoreInd(Instruction):
+    mnemonic, opcode, size = "STOREIND", 0x15, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("STOREIND requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        addr = (cpu.registers["R0"] << 8) | cpu.registers["R1"]
+        cpu.memory[addr] = cpu.registers[reg]
+        return self.size
+
+class LoadInd(Instruction):
+    mnemonic, opcode, size = "LOADIND", 0x16, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register(operands[0]): raise AssemblyError("LOADIND requires one register operand")
+        return [self.opcode, asm.registers[operands[0].upper()]]
+    def execute(self, cpu):
+        reg = _fetch_reg_name(cpu)
+        addr = (cpu.registers["R0"] << 8) | cpu.registers["R1"]
+        val = cpu.memory[addr]
+        cpu.registers[reg] = val
+        cpu._set_flags(val)
+        return self.size
+
+class PushRp(Instruction):
+    mnemonic, opcode, size = "PUSHRP", 0x62, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register_pair(operands[0]): raise AssemblyError("PUSHRP requires one register pair operand")
+        return [self.opcode, asm.register_pairs[operands[0].upper()]]
+    def execute(self, cpu):
+        (r_hi, r_lo) = _fetch_pair_names(cpu)
+        cpu._check_stack_op(2, True)
+        cpu.registers["SP"] -= 2
+        cpu.memory[cpu.registers["SP"]] = cpu.registers[r_hi]
+        cpu.memory[cpu.registers["SP"] + 1] = cpu.registers[r_lo]
+        return self.size
+
+class PopRp(Instruction):
+    mnemonic, opcode, size = "POPRP", 0x63, 2
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1 or not asm.is_register_pair(operands[0]): raise AssemblyError("POPRP requires one register pair operand")
+        return [self.opcode, asm.register_pairs[operands[0].upper()]]
+    def execute(self, cpu):
+        (r_hi, r_lo) = _fetch_pair_names(cpu)
+        cpu._check_stack_op(2, False)
+        cpu.registers[r_hi] = cpu.memory[cpu.registers["SP"]]
+        cpu.registers[r_lo] = cpu.memory[cpu.registers["SP"] + 1]
+        cpu.registers["SP"] += 2
+        return self.size
+
+# --- Group: Jump/Call Instructions ---
+class BaseJump(Instruction): # Helper base class for jumps
+    size = 3
+    def assemble(self, asm, operands, all_symbols):
+        if len(operands) != 1: raise AssemblyError(f"{self.mnemonic} requires one address operand")
+        addr = asm.parse_value(operands[0], 16, all_symbols)
+        return [self.opcode, (addr >> 8) & 0xFF, addr & 0xFF]
+
+class Jmp(BaseJump):
+    mnemonic, opcode = "JMP", 0x06
+    def execute(self, cpu):
+        addr = _fetch_addr16(cpu)
+        cpu.registers["PC"] = addr
+        return 0
+
+class Call(BaseJump):
+    mnemonic, opcode = "CALL", 0x22
+    def execute(self, cpu):
+        addr = _fetch_addr16(cpu)
+        cpu._check_stack_op(2, True)
+        ret_addr = (cpu.registers["PC"] + self.size) & 0xFFFF
+        cpu.registers["SP"] -= 2
+        cpu.memory[cpu.registers["SP"]] = (ret_addr >> 8) & 0xFF
+        cpu.memory[cpu.registers["SP"] + 1] = ret_addr & 0xFF
+        cpu.registers["PC"] = addr
+        return 0
+
+class Jz(BaseJump):
+    mnemonic, opcode = "JZ", 0x30
+    def execute(self, cpu):
+        if cpu.flags['Z'] == 1:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+class Jnz(BaseJump):
+    mnemonic, opcode = "JNZ", 0x31
+    def execute(self, cpu):
+        if cpu.flags['Z'] == 0:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+class Jc(BaseJump):
+    mnemonic, opcode = "JC", 0x32
+    def execute(self, cpu):
+        if cpu.flags['C'] == 1:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+class Jnc(BaseJump):
+    mnemonic, opcode = "JNC", 0x33
+    def execute(self, cpu):
+        if cpu.flags['C'] == 0:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+class Jn(BaseJump):
+    mnemonic, opcode = "JN", 0x34
+    def execute(self, cpu):
+        if cpu.flags['N'] == 1:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+class Jnn(BaseJump):
+    mnemonic, opcode = "JNN", 0x35
+    def execute(self, cpu):
+        if cpu.flags['N'] == 0:
+            cpu.registers["PC"] = _fetch_addr16(cpu)
+            return 0
+        return self.size
+
+# --- Group: Two Operand Instructions ---
+
+class MovRegReg(Instruction):
+    mnemonic, opcode, size = "MOV", 0x03, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for MOV r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1_name, r2_name = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        val = cpu.registers[r2_name]
+        cpu.registers[r1_name] = val
+        cpu._set_flags(val)
+        return self.size
+
+class MovRegVal8(Instruction):
+    mnemonic, opcode, size = "MOV", 0x08, 3
+    def assemble(self, asm, operands, all_symbols):
+        val_type = asm.parse_operand_type(operands[1], all_symbols)
+        if not (asm.is_register(operands[0]) and val_type == 'v8'): raise AssemblyError("Not a match for MOV r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg_name, val = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        cpu.registers[reg_name] = val
+        cpu._set_flags(val)
+        return self.size
+
+class AddRegReg(Instruction):
+    mnemonic, opcode, size = "ADD", 0x04, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for ADD r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        v1, v2 = cpu.registers[r1], cpu.registers[r2]
+        res16 = v1 + v2
+        cpu._set_carry(res16 > 0xFF); res = res16 & 0xFF
+        cpu.registers[r1] = res; cpu._set_flags(res, v1=v1, v2=v2)
+        return self.size
+
+class AddRegVal8(Instruction):
+    mnemonic, opcode, size = "ADD", 0x09, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for ADD r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        v1 = cpu.registers[reg]
+        res16 = v1 + v2
+        cpu._set_carry(res16 > 0xFF); res = res16 & 0xFF
+        cpu.registers[reg] = res; cpu._set_flags(res, v1=v1, v2=v2)
+        return self.size
+
+class SubRegReg(Instruction):
+    mnemonic, opcode, size = "SUB", 0x05, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for SUB r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        v1, v2 = cpu.registers[r1], cpu.registers[r2]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFF
+        cpu.registers[r1] = res; cpu._set_flags(res, v1=v1, v2=v2, is_sub=True)
+        return self.size
+
+class SubRegVal8(Instruction):
+    mnemonic, opcode, size = "SUB", 0x0A, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for SUB r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        v1 = cpu.registers[reg]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFF
+        cpu.registers[reg] = res; cpu._set_flags(res, v1=v1, v2=v2, is_sub=True)
+        return self.size
+
+class CmpRegReg(Instruction):
+    mnemonic, opcode, size = "CMP", 0x0E, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for CMP r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        v1, v2 = cpu.registers[r1], cpu.registers[r2]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFF
+        cpu._set_flags(res, v1=v1, v2=v2, is_sub=True)
+        return self.size
+
+class CmpRegVal8(Instruction):
+    mnemonic, opcode, size = "CMP", 0x0F, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for CMP r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        v1 = cpu.registers[reg]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFF
+        cpu._set_flags(res, v1=v1, v2=v2, is_sub=True)
+        return self.size
+
+class AndRegReg(Instruction):
+    mnemonic, opcode, size = "AND", 0x40, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for AND r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        res = cpu.registers[r1] & cpu.registers[r2]
+        cpu.registers[r1] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class AndRegVal8(Instruction):
+    mnemonic, opcode, size = "AND", 0x44, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for AND r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, val = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        res = cpu.registers[reg] & val
+        cpu.registers[reg] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class OrRegReg(Instruction):
+    mnemonic, opcode, size = "OR", 0x41, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for OR r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        res = cpu.registers[r1] | cpu.registers[r2]
+        cpu.registers[r1] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class OrRegVal8(Instruction):
+    mnemonic, opcode, size = "OR", 0x45, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for OR r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, val = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        res = cpu.registers[reg] | val
+        cpu.registers[reg] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class XorRegReg(Instruction):
+    mnemonic, opcode, size = "XOR", 0x42, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for XOR r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        res = cpu.registers[r1] ^ cpu.registers[r2]
+        cpu.registers[r1] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class XorRegVal8(Instruction):
+    mnemonic, opcode, size = "XOR", 0x46, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for XOR r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, val = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        res = cpu.registers[reg] ^ val
+        cpu.registers[reg] = res; cpu._set_flags(res); cpu.flags['V'] = 0
+        return self.size
+
+class MulRegReg(Instruction):
+    mnemonic, opcode, size = "MUL", 0x50, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for MUL r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        v1, v2 = cpu.registers[r1], cpu.registers[r2]
+        res16 = v1 * v2
+        cpu._set_carry(res16 > 0xFF); res = res16 & 0xFF
+        cpu.registers[r1] = res; cpu._set_flags(res)
+        return self.size
+
+class DivRegReg(Instruction):
+    mnemonic, opcode, size = "DIV", 0x64, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for DIV r, r")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        r1, r2 = _fetch_reg_name(cpu, 1), _fetch_reg_name(cpu, 2)
+        v1, v2 = cpu.registers[r1], cpu.registers[r2]
+        if v2 == 0:
+            cpu.running = False
+            return 0
+        res = v1 // v2; rem = v1 % v2
+        cpu.registers[r1] = res; cpu.registers[r2] = rem; cpu._set_flags(res)
+        return self.size
+
+# --- Group: Shift/Rotate Instructions ---
+
+class ShlRegVal8(Instruction):
+    mnemonic, opcode, size = "SHL", 0x47, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for SHL r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        carry = 0; temp_v1 = cpu.registers[reg]
+        for _ in range(v2):
+            carry = 1 if (temp_v1 & 0x80) else 0
+            temp_v1 = (temp_v1 << 1) & 0xFF
+        cpu._set_carry(carry); cpu.registers[reg] = temp_v1; cpu._set_flags(temp_v1)
+        return self.size
+
+class ShrRegVal8(Instruction):
+    mnemonic, opcode, size = "SHR", 0x48, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for SHR r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        carry = 0; temp_v1 = cpu.registers[reg]
+        for _ in range(v2):
+            carry = 1 if (temp_v1 & 0x01) else 0
+            temp_v1 >>= 1
+        cpu._set_carry(carry); cpu.registers[reg] = temp_v1; cpu._set_flags(temp_v1)
+        return self.size
+
+class RolRegVal8(Instruction):
+    mnemonic, opcode, size = "ROL", 0x65, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for ROL r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        v1 = cpu.registers[reg]
+        shifts = v2 % 8
+        res = ((v1 << shifts) | (v1 >> (8 - shifts))) & 0xFF
+        cpu._set_carry(1 if (res & 0x01) else 0); cpu.registers[reg] = res; cpu._set_flags(res)
+        return self.size
+
+class RorRegVal8(Instruction):
+    mnemonic, opcode, size = "ROR", 0x66, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) == 'v8'): raise AssemblyError("Not a match for ROR r, v8")
+        return [self.opcode, asm.registers[operands[0].upper()], asm.parse_value(operands[1], 8, all_symbols)]
+    def execute(self, cpu):
+        reg, v2 = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        v1 = cpu.registers[reg]
+        shifts = v2 % 8
+        res = ((v1 >> shifts) | (v1 << (8 - shifts))) & 0xFF
+        cpu._set_carry(1 if (res & 0x80) else 0); cpu.registers[reg] = res; cpu._set_flags(res)
+        return self.size
+
+# --- Group: Memory & 16-bit Value Instructions ---
+
+class Load(Instruction):
+    mnemonic, opcode, size = "LOAD", 0x0B, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) in ['v8', 'v16']): raise AssemblyError("Not a match for LOAD r, v16")
+        addr = asm.parse_value(operands[1], 16, all_symbols)
+        return [self.opcode, asm.registers[operands[0].upper()], (addr >> 8) & 0xFF, addr & 0xFF]
+    def execute(self, cpu):
+        reg, addr = _fetch_reg_name(cpu, 1), _fetch_addr16(cpu, 2)
+        val = cpu.memory[addr]
+        cpu.registers[reg] = val; cpu._set_flags(val)
+        return self.size
+
+class Store(Instruction):
+    mnemonic, opcode, size = "STORE", 0x07, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.parse_operand_type(operands[0], all_symbols) in ['v8', 'v16'] and asm.is_register(operands[1])): raise AssemblyError("Not a match for STORE v16, r")
+        addr = asm.parse_value(operands[0], 16, all_symbols)
+        return [self.opcode, (addr >> 8) & 0xFF, addr & 0xFF, asm.registers[operands[1].upper()]]
+    def execute(self, cpu):
+        addr, reg = _fetch_addr16(cpu, 1), _fetch_reg_name(cpu, 3)
+        cpu.memory[addr] = cpu.registers[reg]
+        return self.size
+
+class MovRpVal16(Instruction):
+    mnemonic, opcode, size = "MOV", 0x51, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) in ['v8', 'v16']): raise AssemblyError("Not a match for MOV rp, v16")
+        val16 = asm.parse_value(operands[1], 16, all_symbols)
+        return [self.opcode, asm.register_pairs[operands[0].upper()], (val16 >> 8) & 0xFF, val16 & 0xFF]
+    def execute(self, cpu):
+        (r_hi, r_lo), val16 = _fetch_pair_names(cpu, 1), _fetch_addr16(cpu, 2)
+        cpu.registers[r_hi] = (val16 >> 8) & 0xFF
+        cpu.registers[r_lo] = val16 & 0xFF
+        return self.size
+
+class AddRpRp(Instruction):
+    mnemonic, opcode, size = "ADD", 0x52, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.is_register_pair(operands[1])): raise AssemblyError("Not a match for ADD rp, rp")
+        return [self.opcode, asm.register_pairs[operands[0].upper()], asm.register_pairs[operands[1].upper()]]
+    def execute(self, cpu):
+        (d_hi, d_lo), (s_hi, s_lo) = _fetch_pair_names(cpu, 1), _fetch_pair_names(cpu, 2)
+        v1 = (cpu.registers[d_hi] << 8) | cpu.registers[d_lo]
+        v2 = (cpu.registers[s_hi] << 8) | cpu.registers[s_lo]
+        res32 = v1 + v2; cpu._set_carry(res32 > 0xFFFF); res = res32 & 0xFFFF
+        cpu._set_flags(res, True, v1, v2)
+        cpu.registers[d_hi] = (res >> 8) & 0xFF; cpu.registers[d_lo] = res & 0xFF
+        return self.size
+
+class AddRpVal16(Instruction):
+    mnemonic, opcode, size = "ADD", 0x58, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) in ['v8', 'v16']): raise AssemblyError("Not a match for ADD rp, v16")
+        val16 = asm.parse_value(operands[1], 16, all_symbols)
+        return [self.opcode, asm.register_pairs[operands[0].upper()], (val16 >> 8) & 0xFF, val16 & 0xFF]
+    def execute(self, cpu):
+        (r_hi, r_lo), v2 = _fetch_pair_names(cpu, 1), _fetch_addr16(cpu, 2)
+        v1 = (cpu.registers[r_hi] << 8) | cpu.registers[r_lo]
+        res32 = v1 + v2; cpu._set_carry(res32 > 0xFFFF); res = res32 & 0xFFFF
+        cpu._set_flags(res, True, v1, v2)
+        cpu.registers[r_hi] = (res >> 8) & 0xFF; cpu.registers[r_lo] = res & 0xFF
+        return self.size
+
+class SubRpRp(Instruction):
+    mnemonic, opcode, size = "SUB", 0x59, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.is_register_pair(operands[1])): raise AssemblyError("Not a match for SUB rp, rp")
+        return [self.opcode, asm.register_pairs[operands[0].upper()], asm.register_pairs[operands[1].upper()]]
+    def execute(self, cpu):
+        (d_hi, d_lo), (s_hi, s_lo) = _fetch_pair_names(cpu, 1), _fetch_pair_names(cpu, 2)
+        v1 = (cpu.registers[d_hi] << 8) | cpu.registers[d_lo]
+        v2 = (cpu.registers[s_hi] << 8) | cpu.registers[s_lo]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFFFF
+        cpu._set_flags(res, True, v1, v2, is_sub=True)
+        cpu.registers[d_hi] = (res >> 8) & 0xFF; cpu.registers[d_lo] = res & 0xFF
+        return self.size
+
+class SubRpVal16(Instruction):
+    mnemonic, opcode, size = "SUB", 0x5A, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) in ['v8', 'v16']): raise AssemblyError("Not a match for SUB rp, v16")
+        val16 = asm.parse_value(operands[1], 16, all_symbols)
+        return [self.opcode, asm.register_pairs[operands[0].upper()], (val16 >> 8) & 0xFF, val16 & 0xFF]
+    def execute(self, cpu):
+        (r_hi, r_lo), v2 = _fetch_pair_names(cpu, 1), _fetch_addr16(cpu, 2)
+        v1 = (cpu.registers[r_hi] << 8) | cpu.registers[r_lo]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFFFF
+        cpu._set_flags(res, True, v1, v2, is_sub=True)
+        cpu.registers[r_hi] = (res >> 8) & 0xFF; cpu.registers[r_lo] = res & 0xFF
+        return self.size
+
+class CmpRpRp(Instruction):
+    mnemonic, opcode, size = "CMP", 0x5B, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.is_register_pair(operands[1])): raise AssemblyError("Not a match for CMP rp, rp")
+        return [self.opcode, asm.register_pairs[operands[0].upper()], asm.register_pairs[operands[1].upper()]]
+    def execute(self, cpu):
+        (d_hi, d_lo), (s_hi, s_lo) = _fetch_pair_names(cpu, 1), _fetch_pair_names(cpu, 2)
+        v1 = (cpu.registers[d_hi] << 8) | cpu.registers[d_lo]
+        v2 = (cpu.registers[s_hi] << 8) | cpu.registers[s_lo]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFFFF
+        cpu._set_flags(res, True, v1, v2, is_sub=True)
+        return self.size
+
+class CmpRpVal16(Instruction):
+    mnemonic, opcode, size = "CMP", 0x5C, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register_pair(operands[0]) and asm.parse_operand_type(operands[1], all_symbols) in ['v8', 'v16']): raise AssemblyError("Not a match for CMP rp, v16")
+        val16 = asm.parse_value(operands[1], 16, all_symbols)
+        return [self.opcode, asm.register_pairs[operands[0].upper()], (val16 >> 8) & 0xFF, val16 & 0xFF]
+    def execute(self, cpu):
+        (r_hi, r_lo), v2 = _fetch_pair_names(cpu, 1), _fetch_addr16(cpu, 2)
+        v1 = (cpu.registers[r_hi] << 8) | cpu.registers[r_lo]
+        cpu._set_carry(v1 >= v2); res = (v1 - v2) & 0xFFFF
+        cpu._set_flags(res, True, v1, v2, is_sub=True)
+        return self.size
+
+# --- Group: Indexed Addressing Instructions ---
+
+class LoadIx(Instruction):
+    mnemonic, opcode, size = "LOADIX", 0x55, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_indexed_pair(operands[1])): raise AssemblyError("Not a match for LOADIX r, [rp+v8]")
+        reg, (reg_pair_code, offset) = operands[0], asm.parse_indexed_operand(operands[1], all_symbols)
+        return [self.opcode, asm.registers[reg.upper()], reg_pair_code, offset]
+    def execute(self, cpu):
+        r_dest, (p_hi, p_lo), offset = _fetch_reg_name(cpu, 1), _fetch_pair_names(cpu, 2), _fetch_val8(cpu, 3)
+        base = (cpu.registers[p_hi] << 8) | cpu.registers[p_lo]
+        val = cpu.memory[base + offset]
+        cpu.registers[r_dest] = val; cpu._set_flags(val)
+        return self.size
+
+class StoreIx(Instruction):
+    mnemonic, opcode, size = "STOREIX", 0x56, 4
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_indexed_pair(operands[0]) and asm.is_register(operands[1])): raise AssemblyError("Not a match for STOREIX [rp+v8], r")
+        (reg_pair_code, offset), reg = asm.parse_indexed_operand(operands[0], all_symbols), operands[1]
+        return [self.opcode, reg_pair_code, offset, asm.registers[reg.upper()]]
+    def execute(self, cpu):
+        (p_hi, p_lo), offset, r_src = _fetch_pair_names(cpu, 1), _fetch_val8(cpu, 2), _fetch_reg_name(cpu, 3)
+        base = (cpu.registers[p_hi] << 8) | cpu.registers[p_lo]
+        cpu.memory[base + offset] = cpu.registers[r_src]
+        return self.size
+
+class LoadSp(Instruction):
+    mnemonic, opcode, size = "LOADSP", 0x57, 3
+    def assemble(self, asm, operands, all_symbols):
+        if not (asm.is_register(operands[0]) and asm.is_indexed_sp(operands[1])): raise AssemblyError("Not a match for LOADSP r, [sp+v8]")
+        reg, (_, offset) = operands[0], asm.parse_indexed_operand(operands[1], all_symbols)
+        return [self.opcode, asm.registers[reg.upper()], offset]
+    def execute(self, cpu):
+        r_dest, offset = _fetch_reg_name(cpu, 1), _fetch_val8(cpu, 2)
+        val = cpu.memory[cpu.registers["SP"] + offset]
+        cpu.registers[r_dest] = val; cpu._set_flags(val)
+        return self.size
+
 
 class Assembler:
     def __init__(self):
-        self.opcodes = {
-            # Mnemonic: [ (Opcode, OperandSignature, Size), ... ]
-            "NOP":      [(0x00, [], 1)],
-            "HLT":      [(0xFF, [], 1)],
-            "RET":      [(0x23, [], 1)],
-            "PUSHA":    [(0x53, [], 1)],
-            "POPA":     [(0x54, [], 1)],
-            "INC":      [(0x01, ["r"], 2)],
-            "DEC":      [(0x02, ["r"], 2)],
-            "NOT":      [(0x43, ["r"], 2)],
-            "PUSH":     [(0x20, ["r"], 2)],
-            "POP":      [(0x21, ["r"], 2)],
-            "STOREIND": [(0x15, ["r"], 2)],
-            "LOADIND":  [(0x16, ["r"], 2)],
-            "JMP":      [(0x06, ["v16"], 3)],
-            "CALL":     [(0x22, ["v16"], 3)],
-            "JZ":       [(0x30, ["v16"], 3)],
-            "JNZ":      [(0x31, ["v16"], 3)],
-            "JC":       [(0x32, ["v16"], 3)],
-            "JNC":      [(0x33, ["v16"], 3)],
-            "JN":       [(0x34, ["v16"], 3)],
-            "JNN":      [(0x35, ["v16"], 3)],
-            "LOAD":     [(0x0B, ["r", "v16"], 4)],
-            "STORE":    [(0x07, ["v16", "r"], 4)],
-            "LOADSP":   [(0x57, ["r", "idx_sp"], 3)],
-            "LOADIX":   [(0x55, ["r", "idx"], 4)],
-            "STOREIX":  [(0x56, ["idx", "r"], 4)],
-            "MOV": [
-                (0x03, ["r", "r"], 3),
-                (0x08, ["r", "v8"], 3),
-                (0x51, ["rp", "v16"], 4)
-            ],
-            "ADD": [
-                (0x04, ["r", "r"], 3),
-                (0x09, ["r", "v8"], 3),
-                (0x52, ["rp", "rp"], 3),
-                (0x58, ["rp", "v16"], 4)
-            ],
-            "SUB": [
-                (0x05, ["r", "r"], 3),
-                (0x0A, ["r", "v8"], 3),
-                (0x59, ["rp", "rp"], 3),
-                (0x5A, ["rp", "v16"], 4)
-            ],
-            "CMP": [
-                (0x0E, ["r", "r"], 3),
-                (0x0F, ["r", "v8"], 3),
-                (0x5B, ["rp", "rp"], 3),
-                (0x5C, ["rp", "v16"], 4)
-            ],
-            "AND": [
-                (0x40, ["r", "r"], 3),
-                (0x44, ["r", "v8"], 3)
-            ],
-            "OR": [
-                (0x41, ["r", "r"], 3),
-                (0x45, ["r", "v8"], 3)
-            ],
-            "XOR": [
-                (0x42, ["r", "r"], 3),
-                (0x46, ["r", "v8"], 3)
-            ],
-            "MUL": [
-                (0x50, ["r", "r"], 3)
-            ],
-            "SHL": [
-                (0x47, ["r", "v8"], 3)
-            ],
-            "SHR": [
-                (0x48, ["r", "v8"], 3)
-            ],
+        self.registers = {f"R{i}": 0x10 + i for i in range(10)}
+        self.register_pairs = {"R0": 0xA0, "R2": 0xA2, "R4": 0xA4, "R6": 0xA6, "R8": 0xA8}
+        self.current_pass = 0 # Bug Fix: To track assembly pass
+
+        self.instructions = {
+            "NOP": [Nop()], "HLT": [Hlt()], "RET": [Ret()], "PUSHA": [PushA()], "POPA": [PopA()],
+            "PUSHF": [PushF()], "POPF": [PopF()], "STI": [Sti()], "CLI": [Cli()], "IRET": [Iret()],
+            "INC": [IncReg()], "DEC": [DecReg()], "NOT": [NotReg()], "PUSH": [PushReg()], "POP": [PopReg()],
+            "STOREIND": [StoreInd()], "LOADIND": [LoadInd()], "PUSHRP": [PushRp()], "POPRP": [PopRp()],
+            "JMP": [Jmp()], "CALL": [Call()], "JZ": [Jz()], "JNZ": [Jnz()], "JC": [Jc()], "JNC": [Jnc()], "JN": [Jn()], "JNN": [Jnn()],
+            "LOAD": [Load()], "STORE": [Store()], "LOADIX": [LoadIx()], "STOREIX": [StoreIx()], "LOADSP": [LoadSp()],
+            "MOV": [MovRegReg(), MovRegVal8(), MovRpVal16()],
+            "ADD": [AddRegReg(), AddRegVal8(), AddRpRp(), AddRpVal16()],
+            "SUB": [SubRegReg(), SubRegVal8(), SubRpRp(), SubRpVal16()],
+            "CMP": [CmpRegReg(), CmpRegVal8(), CmpRpRp(), CmpRpVal16()],
+            "AND": [AndRegReg(), AndRegVal8()], "OR": [OrRegReg(), OrRegVal8()], "XOR": [XorRegReg(), XorRegVal8()],
+            "MUL": [MulRegReg()], "DIV": [DivRegReg()],
+            "SHL": [ShlRegVal8()], "SHR": [ShrRegVal8()], "ROL": [RolRegVal8()], "ROR": [RorRegVal8()],
         }
-        self.registers = { "R0": 0x10, "R1": 0x11, "R2": 0x12, "R3": 0x13, "R4": 0x14 }
-        self.register_pairs = { "R0": 0xA0, "R2": 0xA2 }
+
+    def is_register(self, op_str): return op_str.upper() in self.registers
+    def is_register_pair(self, op_str): return op_str.upper() in self.register_pairs
+    def is_indexed_sp(self, op_str): return bool(re.match(r"\[\s*SP\s*\+\s*[^\]]+\]", op_str.upper()))
+    def is_indexed_pair(self, op_str): return bool(re.match(r"\[\s*(R0|R2|R4|R6|R8)\s*\+\s*[^\]]+\]", op_str.upper()))
+    
+    def parse_indexed_operand(self, operand, all_symbols):
+        match = re.match(r"\[\s*(R0|R2|R4|R6|R8|SP)\s*\+\s*([^\]]+)\]", operand.upper())
+        if not match: return None, None
+        reg_name, val_str = match.groups()
+        reg_code = self.register_pairs.get(reg_name)
+        offset = self.parse_value(val_str, 8, all_symbols)
+        return reg_code, offset
+        
+    def _evaluate_constant_expression(self, expr_str, constants):
+        work_expr = expr_str.strip().upper()
+        for const_name in sorted(constants.keys(), key=len, reverse=True):
+            work_expr = re.sub(r'\b' + re.escape(const_name) + r'\b', str(constants[const_name]), work_expr)
+        temp_expr = re.sub(r'0X[0-9A-F]+', '', work_expr)
+        temp_expr = re.sub(r'0B[01]+', '', temp_expr)
+        temp_expr = re.sub(r'[0-9]+', '', temp_expr)
+        temp_expr = re.sub(r'[+\-*/&|<>^~()]', '', temp_expr)
+        temp_expr = temp_expr.strip()
+        if temp_expr: return None
+        try:
+            safe_dict = {'__builtins__': {}}
+            return eval(work_expr, safe_dict, {})
+        except Exception:
+            return None
+
+    def parse_operand_type(self, operand_str, constants_dict):
+        op_upper = operand_str.upper()
+        if self.is_register(op_upper): return "r"
+        if self.is_register_pair(op_upper): return "rp"
+        if self.is_indexed_sp(op_upper): return "idx_sp"
+        if self.is_indexed_pair(op_upper): return "idx"
+        val = self._evaluate_constant_expression(operand_str, constants_dict)
+        if val is not None:
+            return "v8" if 0 <= val <= 0xFF else "v16"
+        return "v16"
+    
+    def parse_value(self, operand, bits, all_symbols):
+        val = self._evaluate_constant_expression(operand, all_symbols)
+        if val is None:
+            # Bug Fix: Handle forward references in Pass 1
+            op_str = operand.strip().upper()
+            if self.current_pass == 1 and re.match(r'^[A-Z_][A-Z0-9_]*$', op_str):
+                 return 0 # It's a forward reference, return dummy value for size calculation.
+            raise AssemblyError(f"Cannot resolve expression '{operand}'")
+
+        max_val = (1 << bits) - 1
+        if not (0 <= val <= max_val):
+            if bits == 8 and -128 <= val < 0: val &= 0xFF
+            elif bits == 16 and -32768 <= val < 0: val &= 0xFFFF
+            else: print(f"Warning: Value of '{operand}' ({val}) is out of {bits}-bit range.")
+        return val
 
     def assemble(self, assembly_code):
         lines = assembly_code.strip().splitlines()
-        
-        # --- (Helper Functions for Parsing) ---
-        def parse_operand_type(operand_str, constants_dict):
-            operand_str = operand_str.upper()
-            if operand_str in self.registers: return "r"
-            if operand_str in self.register_pairs: return "rp"
-            if re.match(r"\[\s*SP\s*\+\s*[^\]]+\]", operand_str): return "idx_sp"
-            if re.match(r"\[\s*(R0|R2)\s*\+\s*[^\]]+\]", operand_str): return "idx"
-            
-            # For type determination, we just need a rough idea.
-            # We will do full expression evaluation in pass 2.
-            # For now, just check if it looks like a number. If not, assume it's a label (v16).
-            try:
-                 # Check if it's a simple number first
-                 val = int(operand_str, 0)
-                 return "v8" if 0 <= val <= 0xFF else "v16"
-            except ValueError:
-                 # If it contains operators or is a non-numeric string, it could be an expression or label
-                 if any(op in operand_str for op in ['+', '-', '*', '/']):
-                     # It's an expression. We can't know its size for sure without
-                     # evaluating, but v16 is a safe bet for signature matching.
-                     return "v16"
-                 # Could be a constant or label. Check constant dict.
-                 val = constants_dict.get(operand_str)
-                 if val is not None:
-                     return "v8" if 0 <= val <= 0xFF else "v16"
-                 # Assume it's a label, which is a 16-bit address
-                 return "v16"
-
 
         def define_constants(lines_list):
             constants, remaining_lines = {}, []
             for line in lines_list:
-                clean_line = line.split('#', 1)[0].strip()
+                clean_line = line.split(';', 1)[0].strip()
                 if not clean_line: continue
                 parts = clean_line.split()
                 if len(parts) >= 3 and parts[1].upper() == 'EQU':
-                    try:
-                        constants[parts[0].upper()] = int(parts[2], 0)
-                    except ValueError:
-                        print(f"Error: Invalid EQU value for '{parts[0]}'")
+                    val = self._evaluate_constant_expression(parts[2], constants)
+                    if val is None:
+                        print(f"Error: Could not evaluate EQU value for '{parts[0]}'")
                         return None, None
+                    constants[parts[0].upper()] = val
                 else:
                     remaining_lines.append(line)
             return constants, remaining_lines
-
+            
         def split_operands(operand_string):
             if not operand_string: return []
-            return [op.strip() for op in re.split(r",\s*(?![^\[]*\])", operand_string)]
+            return [op.strip() for op in re.split(r",(?=(?:[^\"']*[\"'][^\"']*[\"'])*[^\"']*$)", operand_string)]
 
-        # --- (Pass 1: Label and Constant Definition) ---
-        print("[Assembler] Pass 1: Defining constants and labels...")
+        # --- Pass 1 ---
+        print("[Assembler] Pass 1: Defining constants, labels, and data...")
+        self.current_pass = 1 # Bug Fix: Set current pass to 1
         constants, lines = define_constants(lines)
         if constants is None: return None
         
         labels, code_intermediate, current_address = {}, [], 0
         for line_num, line in enumerate(lines, 1):
-            line = line.split('#', 1)[0].strip()
+            line = line.split(';', 1)[0].strip()
             if not line: continue
             
             label_def = None
@@ -162,349 +953,209 @@ class Assembler:
             
             parts = line.split(maxsplit=1)
             op = parts[0].upper()
-            operands = split_operands(parts[1]) if len(parts) > 1 else []
+            operands_str = parts[1] if len(parts) > 1 else ""
+            operands = split_operands(operands_str)
+            
+            if op == "ORG":
+                new_addr = self.parse_value(operands[0], 16, constants)
+                if not (0 <= new_addr < 65535):
+                    print(f"Error (Line {line_num}): ORG address 0x{new_addr:04X} is out of bounds.")
+                    return None
+                current_address = new_addr
+                continue
 
-            if op not in self.opcodes:
+            if op in ["DB", "DW"]:
+                data_size = 0
+                if op == "DB":
+                    for op_str in operands: data_size += len(op_str[1:-1].encode('ascii')) if op_str.startswith('"') else 1
+                elif op == "DW": data_size += len(operands) * 2
+                code_intermediate.append({'line': line_num, 'address': current_address, 'op': op, 'operands': operands, 'size': data_size})
+                current_address += data_size
+                continue
+
+            instruction_variants = self.instructions.get(op)
+            if not instruction_variants:
                 print(f"Error (Line {line_num}): Unknown instruction '{op}'")
                 return None
-            
-            operand_sig = [parse_operand_type(op_str, constants) for op_str in operands]
 
-            # --- CONTEXT-SENSITIVE FIX ---
-            if "v16" in operand_sig:
-                for i, op_str in enumerate(operands):
-                    if operand_sig[i] == 'r' and op_str.upper() in self.register_pairs:
-                        operand_sig[i] = 'rp'
-            
-            matched_variant = None
-            for opcode, sig, size in self.opcodes[op]:
-                if len(sig) == len(operand_sig):
-                    is_match = all((s1 == s2) or (s1 == 'v16' and s2 == 'v8') for s1, s2 in zip(sig, operand_sig))
-                    if is_match:
-                        matched_variant = {'op': op, 'opcode': opcode, 'sig': sig, 'size': size, 'operands': operands, 'line': line_num}
-                        break
-            
-            if not matched_variant:
-                print(f"Error (Line {line_num}): Invalid operands for '{op}': {operands} (Interpreted as: {operand_sig})")
+            matched_instruction = None
+            all_symbols_pass1 = {**constants, **labels}
+            for instr_obj in instruction_variants:
+                try:
+                    instr_obj.assemble(self, operands, all_symbols_pass1)
+                    matched_instruction = instr_obj
+                    break 
+                except (AssemblyError, KeyError, IndexError, TypeError):
+                    continue 
+
+            if not matched_instruction:
+                print(f"Error (Line {line_num}): Invalid operands for '{op}': {operands}")
                 return None
             
-            code_intermediate.append({**matched_variant, 'address': current_address, 'label': label_def})
-            current_address += matched_variant['size']
+            code_intermediate.append({
+                'line': line_num, 'address': current_address, 'label': label_def, 
+                'op': op, 'operands': operands, 'size': matched_instruction.size,
+                'instruction_obj': matched_instruction
+            })
+            current_address += matched_instruction.size
         print(f"[Assembler] Pass 1 Complete. Labels: {labels}")
 
-        # --- (Pass 2: Code Generation) ---
+        # --- Pass 2 ---
         print("[Assembler] Pass 2: Generating bytecode...")
-        code = bytearray()
-        
-        # --- NEW: Expression Evaluation Logic ---
-        def evaluate_expression(expr_str, line_num):
-            """Evaluates a simple arithmetic expression involving numbers, constants, and labels."""
-            
-            def resolve_term(term):
-                term = term.strip().upper()
-                if not term: return None
-                if term in constants: return constants[term]
-                if term in labels: return labels[term]
-                try: return int(term, 0)
-                except ValueError: return None
+        self.current_pass = 2 # Bug Fix: Set current pass to 2
+        final_code = bytearray()
+        all_symbols = {**constants, **labels}
 
-            # Split by operators, keeping the operators
-            tokens = re.split(r'([+\-*/])', expr_str)
-            tokens = [t.strip() for t in tokens if t.strip()]
-            
-            if not tokens:
-                print(f"Error (Line {line_num}): Invalid or empty expression '{expr_str}'")
-                return None
-                
-            # Handle unary minus/plus at the beginning
-            if tokens[0] in ['+', '-'] and len(tokens) > 1:
-                 tokens = ['0'] + tokens
-            
-            # Resolve the first term
-            current_val = resolve_term(tokens[0])
-            if current_val is None:
-                print(f"Error (Line {line_num}): Cannot resolve term '{tokens[0]}' in expression '{expr_str}'")
-                return None
-            
-            # Evaluate left-to-right
-            i = 1
-            while i < len(tokens):
-                op = tokens[i]
-                if i + 1 >= len(tokens):
-                    print(f"Error (Line {line_num}): Incomplete expression '{expr_str}'")
-                    return None
-                
-                val = resolve_term(tokens[i+1])
-                if val is None:
-                    print(f"Error (Line {line_num}): Cannot resolve term '{tokens[i+1]}' in expression '{expr_str}'")
-                    return None
-                
-                if op == '+': current_val += val
-                elif op == '-': current_val -= val
-                elif op == '*': current_val *= val
-                elif op == '/':
-                    if val == 0:
-                        print(f"Error (Line {line_num}): Division by zero in '{expr_str}'")
-                        return None
-                    current_val //= val  # Integer division
-                
-                i += 2 # Move to the next operator
-                
-            return current_val
+        for item in code_intermediate:
+            if item['op'] == 'NOP_LABEL': continue
+            line_num = item['line']
 
-        # --- MODIFIED: parse_value now uses the expression evaluator ---
-        def parse_value(operand, line_num, bits=8):
-            val = evaluate_expression(operand, line_num)
-            if val is None: # Error already printed by evaluator
-                return None
-            
-            max_val = (1 << bits) - 1
-            # For signed context, we might need different checks, but for now, treat as unsigned.
-            min_val = 0 
-            if not (min_val <= val <= max_val):
-                print(f"Error (Line {line_num}): Result of '{operand}' ({val}) is out of {bits}-bit range.")
-                return None
-            return val
-
-        def parse_register(op, ln): return self.registers.get(op.upper())
-        def parse_register_pair(op, ln): return self.register_pairs.get(op.upper())
-        
-        # --- MODIFIED: parse_indexed_operand now uses the expression evaluator for its offset ---
-        def parse_indexed_operand(operand, line_num):
-            match = re.match(r"\[\s*(R0|R2|SP)\s*\+\s*([^\]]+)\]", operand.upper())
-            if not match: return None, None
-            reg_name, val_str = match.groups()
-            reg_code = self.register_pairs.get(reg_name) if reg_name != "SP" else 0xFF
-            # The value part (val_str) is an expression to be evaluated
-            offset = parse_value(val_str, line_num, 8)
-            return reg_code, offset
-
-        for instr in code_intermediate:
-            if instr['op'] == 'NOP_LABEL': continue
-            
-            opcode, sig, operands, ln = instr['opcode'], instr['sig'], instr['operands'], instr['line']
-            code.append(opcode)
+            if item['op'] in ["DB", "DW"]:
+                for op_str in item['operands']:
+                    if item['op'] == "DB":
+                        if op_str.startswith('"') and op_str.endswith('"'):
+                            final_code.extend(op_str[1:-1].encode('ascii'))
+                        else: final_code.append(self.parse_value(op_str, 8, all_symbols))
+                    elif item['op'] == "DW":
+                        val = self.parse_value(op_str, 16, all_symbols)
+                        final_code.extend([(val >> 8) & 0xFF, val & 0xFF])
+                continue
             
             try:
-                for i, op_sig in enumerate(sig):
-                    op_str = operands[i]
-                    if op_sig == "r": code.append(parse_register(op_str, ln))
-                    elif op_sig == "rp": code.append(parse_register_pair(op_str, ln))
-                    elif op_sig == "v8": 
-                        val = parse_value(op_str, ln, 8)
-                        if val is None: return None
-                        code.append(val)
-                    elif op_sig == "v16":
-                        val = parse_value(op_str, ln, 16)
-                        if val is None: return None
-                        code.extend([(val >> 8) & 0xFF, val & 0xFF])
-                    elif op_sig == "idx":
-                        reg_pair_code, offset = parse_indexed_operand(op_str, ln)
-                        if offset is None: return None
-                        code.extend([reg_pair_code, offset])
-                    elif op_sig == "idx_sp":
-                        _, offset = parse_indexed_operand(op_str, ln)
-                        if offset is None: return None
-                        code.append(offset)
-
-            except (TypeError, ValueError):
-                 print(f"Assembly Error (Line {ln}): Malformed operands for '{instr['op']}'. Halted."); return None
+                instr_obj = item['instruction_obj']
+                bytecode = instr_obj.assemble(self, item['operands'], all_symbols)
+                final_code.extend(bytecode)
+            except (AssemblyError, KeyError, IndexError, TypeError) as e:
+                print(f"Assembly Error (Line {line_num}): Could not assemble '{item['op']}'. Details: {e}")
+                import traceback; traceback.print_exc()
+                return None
         
-        print(f"[Assembler] Pass 2 Complete. Final code size: {len(code)} bytes.")
-        return code
+        print(f"[Assembler] Pass 2 Complete. Final code size: {len(final_code)} bytes.")
+        return final_code
 
+
+# --- CPU CLASS (Refactored) ---
 class CPU:
     def __init__(self, memory_size, stack_size, gui=None, update_callback=None):
-        # ... (Constructor remains the same from the previous version)
         self.memory_size = memory_size; self.stack_size = stack_size
         self.memory = bytearray(self.memory_size)
-        self.registers = {"PC": 0, "SP": self.memory_size, "R0": 0, "R1": 0, "R2": 0, "R3": 0, "R4": 0}
-        self.flags = {'Z': 0, 'C': 0, 'N': 0}
-        self.screen_width = 100; self.screen_height = 100
+        
+        self.registers = {"PC": 0, "SP": self.memory_size}
+        for i in range(10): self.registers[f"R{i}"] = 0
+            
+        self.flags = {'Z': 0, 'C': 0, 'N': 0, 'V': 0, 'A': 0, 'I': 0}
+        self.halted = False
+        
+        self.screen_width = 100; self.screen_height = 100;
+        self.screen_size = self.screen_width * self.screen_height
         self.stack_base = self.memory_size
-        print( f"[CPU REPORT] Stack Base Memory: 0x{self.stack_base:04x}" )
         self.stack_limit = self.memory_size - self.stack_size
-        print( f"[CPU REPORT] Stack Limit Memory: 0x{self.stack_limit:04x}" )
-        self.screen_address = self.stack_limit - (self.screen_width * self.screen_height)
-        print( f"[CPU REPORT] Video Memory: 0x{self.screen_address:04x}" )
+        self.screen_address = self.stack_limit - self.screen_size
         self.keyboard_data_address = self.screen_address - 1
-        print( f"[CPU REPORT] KBD Data Memory: 0x{self.keyboard_data_address:04x}" )
         self.keyboard_status_address = self.screen_address - 2
-        print( f"[CPU REPORT] KBD Status Memory: 0x{self.keyboard_status_address:04x}" )
         self.font_addr = self.keyboard_status_address - 760
-        print( f"[CPU REPORT] Font Bitmap Memory: 0x{self.font_addr:04x}" )
+        self.mem_used = ( 760 + 1 + 1 + self.screen_size + self.stack_size)
+        self.mem_free = self.memory_size - self.mem_used
+
         self.running = False; self.stop_event = threading.Event()
         self.gui = gui; self.update_callback = update_callback
-        self.register_names = {0x10: "R0", 0x11: "R1", 0x12: "R2", 0x13: "R3", 0x14: "R4"}
-        self.register_pair_names = {0xA0: ("R0", "R1"), 0xA2: ("R2", "R3")}
+        
+        self.register_names = {0x10 + i: f"R{i}" for i in range(10)}
+        self.register_pair_names = {0xA0: ("R0", "R1"), 0xA2: ("R2", "R3"), 0xA4: ("R4", "R5"), 0xA6: ("R6", "R7"), 0xA8: ("R8", "R9")}
+        
+        self.interrupt_requests = {'KEYBOARD': False}
+        self.interrupt_vector_table = {'KEYBOARD': 0x0100}
 
-    def _set_flags(self, result, is_16bit=False):
-        mask = 0xFFFF if is_16bit else 0xFF
-        sign_bit = 0x8000 if is_16bit else 0x80
+        self.instruction_set = [InvalidInstruction()] * 256
+        
+        all_cpu_instructions = [
+            Nop(), Hlt(), Ret(), PushA(), PopA(), PushF(), PopF(), Sti(), Cli(), Iret(),
+            IncReg(), DecReg(), NotReg(), PushReg(), PopReg(), StoreInd(), LoadInd(), PushRp(), PopRp(),
+            Jmp(), Call(), Jz(), Jnz(), Jc(), Jnc(), Jn(), Jnn(),
+            Load(), Store(), LoadIx(), StoreIx(), LoadSp(),
+            MovRegReg(), MovRegVal8(), MovRpVal16(),
+            AddRegReg(), AddRegVal8(), AddRpRp(), AddRpVal16(),
+            SubRegReg(), SubRegVal8(), SubRpRp(), SubRpVal16(),
+            CmpRegReg(), CmpRegVal8(), CmpRpRp(), CmpRpVal16(),
+            AndRegReg(), AndRegVal8(), OrRegReg(), OrRegVal8(), XorRegReg(), XorRegVal8(),
+            MulRegReg(), DivRegReg(),
+            ShlRegVal8(), ShrRegVal8(), RolRegVal8(), RorRegVal8(),
+        ]
+        for instr in all_cpu_instructions:
+            self.instruction_set[instr.opcode] = instr
+
+    def _set_flags(self, result, is_16bit=False, v1=0, v2=0, is_sub=False):
+        mask = 0xFFFF if is_16bit else 0xFF; sign_bit = 0x8000 if is_16bit else 0x80
         self.flags['Z'] = 1 if (result & mask) == 0 else 0
         self.flags['N'] = 1 if (result & sign_bit) else 0
-
+        op2 = -v2 if is_sub else v2
+        if (v1 & sign_bit) == (op2 & sign_bit) and (v1 & sign_bit) != (result & sign_bit): self.flags['V'] = 1
+        else: self.flags['V'] = 0
+        if is_sub: self.flags['A'] = 1 if (v1 & 0x0F) < (v2 & 0x0F) else 0
+        else: self.flags['A'] = 1 if ((v1 & 0x0F) + (v2 & 0x0F)) > 0x0F else 0
     def _set_carry(self, val): self.flags['C'] = 1 if val else 0
-
+    def _pack_flags(self): return (self.flags['Z'] << 7) | (self.flags['N'] << 6) | (self.flags['C'] << 5) | (self.flags['V'] << 4) | (self.flags['A'] << 3) | (self.flags['I'] << 2)
+    def _unpack_flags(self, byte): self.flags['Z']=(byte>>7)&1; self.flags['N']=(byte>>6)&1; self.flags['C']=(byte>>5)&1; self.flags['V']=(byte>>4)&1; self.flags['A']=(byte>>3)&1; self.flags['I']=(byte>>2)&1
     def _check_stack_op(self, size, is_push):
         new_sp = self.registers['SP'] - size if is_push else self.registers['SP'] + size
-        if not (self.stack_limit <= new_sp <= self.stack_base):
-            print(f"Stack {'Overflow' if is_push else 'Underflow'} Error. Halting."); self.running = False; return False
+        if not (self.stack_limit <= new_sp <= self.stack_base): print(f"Stack {'Overflow' if is_push else 'Underflow'} Error. Halting."); self.running = False; return False
         return True
-
     def load_program(self, program_code, start_address):
-        if start_address + len(program_code) > len(self.memory): return False
+        if start_address + len(program_code) > len(self.memory): print(f"Error: Program is too large. Size: {len(program_code)}"); return False
         self.memory[start_address:start_address + len(program_code)] = program_code
         return True
-
-    def execute_instruction(self):
-        if self.stop_event.is_set(): self.running = False; return
-        pc = self.registers["PC"]
-        if not (0 <= pc < self.memory_size):
-            print(f"PC Error. Halting."); self.running = False; return
-
-        instruction = self.memory[pc]
-        pc_increment = 1
-        
-        def fetch(offset=1, num_bytes=1):
-            if pc + offset + num_bytes > self.memory_size: self.running = False; return None
-            return self.memory[pc + offset] if num_bytes == 1 else self.memory[pc + offset : pc + offset + num_bytes]
-
-        def fetch_reg_name(offset=1):
-            name = self.register_names.get(fetch(offset))
-            if name is None: self.running = False
-            return name
-
-        def fetch_pair_names(offset=1):
-            names = self.register_pair_names.get(fetch(offset))
-            if names is None: self.running = False
-            return names
-        
-        def fetch_addr16(offset=1):
-            data = fetch(offset, 2)
-            return (data[0] << 8) | data[1] if data else None
-
-        try:
-            if instruction in [0x00, 0xFF, 0x23, 0x53, 0x54]:
-                if instruction == 0xFF: self.running = False; pc_increment = 0 # HLT
-                elif instruction == 0x23:
-                    self._check_stack_op(2,False); hi=self.memory[self.registers["SP"]]; lo=self.memory[self.registers["SP"]+1]; self.registers["SP"]+=2; self.registers["PC"]=(hi<<8)|lo; pc_increment=0
-                elif instruction == 0x53:
-                    self._check_stack_op(5,True); self.registers["SP"]-=5; regs=["R0","R1","R2","R3","R4"]; [self.memory.__setitem__(self.registers["SP"]+i, self.registers[r]) for i,r in enumerate(regs)]
-                elif instruction == 0x54:
-                    self._check_stack_op(5,False); regs=["R0","R1","R2","R3","R4"]; [self.registers.__setitem__(r, self.memory[self.registers["SP"]+i]) for i,r in enumerate(regs)]; self.registers["SP"]+=5
-                pc_increment = 1 if instruction != 0x23 and instruction != 0xFF else 0
-            
-            elif instruction in [0x01, 0x02, 0x43, 0x20, 0x21, 0x15, 0x16]:
-                reg = fetch_reg_name(); pc_increment = 2
-                if   instruction == 0x01: res = (self.registers[reg] + 1) & 0xFF; self._set_flags(res); self.registers[reg] = res
-                elif instruction == 0x02: res = (self.registers[reg] - 1) & 0xFF; self._set_flags(res); self.registers[reg] = res
-                elif instruction == 0x43: res = (~self.registers[reg])&0xFF; self._set_flags(res); self.registers[reg] = res
-                elif instruction == 0x20: self._check_stack_op(1,True); self.registers["SP"]-=1; self.memory[self.registers["SP"]]=self.registers[reg]
-                elif instruction == 0x21: self._check_stack_op(1,False); val=self.memory[self.registers["SP"]]; self.registers[reg]=val; self.registers["SP"]+=1; self._set_flags(val)
-                elif instruction == 0x15: addr=(self.registers["R0"]<<8)|self.registers["R1"]; self.memory[addr]=self.registers[reg]
-                elif instruction == 0x16: addr=(self.registers["R0"]<<8)|self.registers["R1"]; val=self.memory[addr]; self.registers[reg]=val; self._set_flags(val)
-            
-            elif instruction in [0x06, 0x22, *range(0x30, 0x36)]:
-                addr = fetch_addr16(); pc_increment = 3
-                if instruction == 0x06: self.registers["PC"] = addr; pc_increment = 0
-                elif instruction == 0x22:
-                    self._check_stack_op(2,True); ret=(pc+3)&0xFFFF; self.registers["SP"]-=2; self.memory[self.registers["SP"]]=(ret>>8)&0xFF; self.memory[self.registers["SP"]+1]=ret&0xFF; self.registers["PC"]=addr; pc_increment=0
-                else:
-                    cond = (instruction == 0x30 and self.flags['Z']==1) or \
-                           (instruction == 0x31 and self.flags['Z']==0) or \
-                           (instruction == 0x32 and self.flags['C']==1) or \
-                           (instruction == 0x33 and self.flags['C']==0) or \
-                           (instruction == 0x34 and self.flags['N']==1) or \
-                           (instruction == 0x35 and self.flags['N']==0)
-                    if cond: self.registers["PC"] = addr; pc_increment = 0
-            
-            elif instruction in [0x03, 0x04, 0x05, 0x0E, 0x40, 0x41, 0x42, 0x50]: # R, R
-                r1, r2 = fetch_reg_name(1), fetch_reg_name(2); v1, v2 = self.registers[r1], self.registers[r2]; pc_increment = 3
-                if   instruction == 0x03: res = v2; self.registers[r1] = res; self._set_flags(res)
-                elif instruction == 0x04: res16=v1+v2; self._set_carry(res16>0xFF); res=res16&0xFF; self.registers[r1]=res; self._set_flags(res)
-                elif instruction == 0x05: self._set_carry(v1>=v2); res=(v1-v2)&0xFF; self.registers[r1]=res; self._set_flags(res)
-                elif instruction == 0x0E: self._set_carry(v1>=v2); res=(v1-v2)&0xFF; self._set_flags(res)
-                elif instruction == 0x40: res=v1&v2; self.registers[r1]=res; self._set_flags(res)
-                elif instruction == 0x41: res=v1|v2; self.registers[r1]=res; self._set_flags(res)
-                elif instruction == 0x42: res=v1^v2; self.registers[r1]=res; self._set_flags(res)
-                elif instruction == 0x50: res16=v1*v2; self._set_carry(res16>0xFF); res=res16&0xFF; self.registers[r1]=res; self._set_flags(res)
-
-            elif instruction in [0x08, 0x09, 0x0A, 0x0F, 0x44, 0x45, 0x46]: # R, Imm8
-                reg, v2 = fetch_reg_name(1), fetch(2); v1 = self.registers[reg]; pc_increment = 3
-                if   instruction == 0x08: res = v2; self.registers[reg] = res; self._set_flags(res)
-                elif instruction == 0x09: res16=v1+v2; self._set_carry(res16>0xFF); res=res16&0xFF; self.registers[reg]=res; self._set_flags(res)
-                elif instruction == 0x0A: self._set_carry(v1>=v2); res=(v1-v2)&0xFF; self.registers[reg]=res; self._set_flags(res)
-                elif instruction == 0x0F: self._set_carry(v1>=v2); res=(v1-v2)&0xFF; self._set_flags(res)
-                elif instruction == 0x44: res=v1&v2; self.registers[reg]=res; self._set_flags(res)
-                elif instruction == 0x45: res=v1|v2; self.registers[reg]=res; self._set_flags(res)
-                elif instruction == 0x46: res=v1^v2; self.registers[reg]=res; self._set_flags(res)
-
-            elif instruction == 0x47:
-                reg, shifts = fetch_reg_name(1), fetch(2)
-                v1 = self.registers[reg]
-                carry = 0
-                for _ in range(shifts):
-                    carry = 1 if (v1 & 0x80) else 0
-                    v1 = (v1 << 1) & 0xFF
-                self._set_carry(carry)
-                self.registers[reg] = v1
-                self._set_flags(v1)
-                pc_increment = 3
-
-            elif instruction == 0x48:
-                reg, shifts = fetch_reg_name(1), fetch(2)
-                v1 = self.registers[reg]
-                carry = 0
-                for _ in range(shifts):
-                    carry = 1 if (v1 & 0x01) else 0
-                    v1 >>= 1
-                self._set_carry(carry)
-                self.registers[reg] = v1
-                self._set_flags(v1)
-                pc_increment = 3
-
-            elif instruction in [0x51, 0x58, 0x5A, 0x5C]: # RP, Imm16
-                (r_hi, r_lo), val16 = fetch_pair_names(1), fetch_addr16(2); pc_increment = 4
-                if   instruction == 0x51: self.registers[r_hi]=(val16>>8)&0xFF; self.registers[r_lo]=val16&0xFF
-                else:
-                    v1 = (self.registers[r_hi] << 8) | self.registers[r_lo]
-                    if   instruction == 0x58: res32=v1+val16; self._set_carry(res32>0xFFFF); res=res32&0xFFFF; self._set_flags(res,True); self.registers[r_hi]=(res>>8)&0xFF; self.registers[r_lo]=res&0xFF
-                    elif instruction == 0x5A: self._set_carry(v1>=val16); res=(v1-val16)&0xFFFF; self._set_flags(res,True); self.registers[r_hi]=(res>>8)&0xFF; self.registers[r_lo]=res&0xFF
-                    elif instruction == 0x5C: self._set_carry(v1>=val16); res=(v1-val16)&0xFFFF; self._set_flags(res,True)
-            
-            elif instruction in [0x52, 0x59, 0x5B]: # RP, RP
-                (d_hi, d_lo), (s_hi, s_lo) = fetch_pair_names(1), fetch_pair_names(2); pc_increment = 3
-                v1 = (self.registers[d_hi]<<8)|self.registers[d_lo]; v2 = (self.registers[s_hi]<<8)|self.registers[s_lo]
-                if   instruction == 0x52: res32=v1+v2; self._set_carry(res32>0xFFFF); res=res32&0xFFFF; self._set_flags(res,True); self.registers[d_hi]=(res>>8)&0xFF; self.registers[d_lo]=res&0xFF
-                elif instruction == 0x59: self._set_carry(v1>=v2); res=(v1-v2)&0xFFFF; self._set_flags(res,True); self.registers[d_hi]=(res>>8)&0xFF; self.registers[d_lo]=res&0xFF
-                elif instruction == 0x5B: self._set_carry(v1>=v2); res=(v1-v2)&0xFFFF; self._set_flags(res,True)
-            
-            elif instruction in [0x0B, 0x07, 0x55, 0x56, 0x57]:
-                if   instruction == 0x0B: reg,addr=fetch_reg_name(1),fetch_addr16(2); val=self.memory[addr]; self.registers[reg]=val; self._set_flags(val); pc_increment = 4
-                elif instruction == 0x07: addr,reg=fetch_addr16(1),fetch_reg_name(3); self.memory[addr] = self.registers[reg]; pc_increment = 4
-                elif instruction == 0x55: r_dest,(p_hi,p_lo),offset=fetch_reg_name(1),fetch_pair_names(2),fetch(3); base=(self.registers[p_hi]<<8)|self.registers[p_lo]; val=self.memory[base+offset]; self.registers[r_dest]=val; self._set_flags(val); pc_increment=4
-                elif instruction == 0x56: (p_hi,p_lo),offset,r_src=fetch_pair_names(1),fetch(2),fetch_reg_name(3); base=(self.registers[p_hi]<<8)|self.registers[p_lo]; self.memory[base+offset]=self.registers[r_src]; pc_increment=4
-                elif instruction == 0x57: r_dest,offset=fetch_reg_name(1),fetch(2); val=self.memory[self.registers["SP"]+offset]; self.registers[r_dest]=val; self._set_flags(val); pc_increment=3
-            
-            else:
-                print(f"Unknown instruction 0x{instruction:02X}. Halting."); self.running = False; pc_increment = 0
-
-        except (TypeError, IndexError, KeyError) as e:
-            print(f"CRITICAL CPU ERROR at PC=0x{pc:04X} (Op: 0x{instruction:02X}): {e}");
-            import traceback; traceback.print_exc(); self.running = False; pc_increment = 0
-
-        if self.running and pc_increment > 0:
-            self.registers["PC"] = (pc + pc_increment) & 0xFFFF
     
+    def execute_instruction(self):
+        pc = self.registers["PC"]
+        opcode = self.memory[pc]
+        instruction_to_execute = self.instruction_set[opcode]
+        
+        try:
+            pc_increment = instruction_to_execute.execute(self)
+            if self.running and pc_increment > 0:
+                self.registers["PC"] = (pc + pc_increment) & 0xFFFF
+        except (TypeError, IndexError, KeyError, ValueError) as e:
+            print(f"CRITICAL CPU ERROR at PC=0x{pc:04X} (Op: 0x{opcode:02X}): {e}");
+            import traceback; traceback.print_exc();
+            self.running = False
+
+    def handle_interrupts(self):
+        if not self.flags['I'] or not self.interrupt_requests['KEYBOARD']: return False
+        self.halted = False; self.interrupt_requests['KEYBOARD'] = False
+        self._check_stack_op(3, True); current_pc = self.registers['PC']
+        self.registers['SP'] -= 3
+        self.memory[self.registers['SP']] = self._pack_flags()
+        self.memory[self.registers['SP'] + 1] = (current_pc >> 8) & 0xFF
+        self.memory[self.registers['SP'] + 2] = current_pc & 0xFF
+        self.flags['I'] = 0; self.registers['PC'] = self.interrupt_vector_table['KEYBOARD']
+        return True
+
     def run(self):
-        self.running = True; self.stop_event.clear()
-        start_time = time.time()
+        self.running = True
+        self.halted = False
+        self.stop_event.clear()
         while self.running:
-            self.execute_instruction()
-            if self.stop_event.is_set(): self.running = False
+            if self.stop_event.is_set():
+                self.running = False
+                break
+
+            # If HLT was executed, the program is done. Stop running.
+            if self.halted:
+                self.running = False
+                continue
+
+            pc_before = self.registers["PC"]
+            if not (0 <= pc_before < self.memory_size):
+                print(f"PC Error (0x{pc_before:04X}). Halting.")
+                self.running = False
+                break
+            
+            if not self.handle_interrupts():
+                self.execute_instruction()
+        
         print(f"CPU execution finished. Final PC: 0x{self.registers['PC']:04X}.")
-        if self.update_callback: self.update_callback()
+        if self.update_callback:
+            self.update_callback()
 
     def get_stack_as_string( self, max_entries=8 ):
         stack_str = f"--- Stack Top (SP=0x{self.registers[ 'SP' ]:04X}) ---\n"; count = 0
@@ -516,7 +1167,6 @@ class CPU:
              stack_str += f"[0x{addr:04X}]: 0x{val:02X} {marker}\n"; count += 1
         if count == 0 and start_addr < self.stack_base : stack_str += "(Empty or SP below range shown)\n"
         return stack_str
-
     def get_memory_as_string( self, start_address, num_bytes, bytes_per_line=8 ):
         start = max( 0, start_address ); end = min( start + num_bytes, len( self.memory ) )
         mem_str = f"--- Mem Dump: 0x{start:04X}-0x{end-1:04X} ---\n"; line = ""
@@ -528,7 +1178,6 @@ class CPU:
         if line: mem_str += line.rstrip()
         return mem_str
 
-
 class SimulatorGUI:
     def __init__( self, cpu ):
         print( "[GUI Init] Initializing Pygame..."); pygame.init(); print("[GUI Init] Pygame Initialized." )
@@ -537,7 +1186,7 @@ class SimulatorGUI:
         self.cpu.update_callback = self.update_gui_callback
         self.cpu_thread = None
         self.screen_width = 100; self.screen_height = 100; self.pixel_size = 4
-        self.info_panel_width = 270
+        self.info_panel_width = 320
         self.total_width = self.screen_width * self.pixel_size + self.info_panel_width
         self.total_height = self.screen_height * self.pixel_size
         print( f"[GUI Init] Setting display mode ({self.total_width}x{self.total_height})..." );
@@ -547,128 +1196,137 @@ class SimulatorGUI:
         print( "[GUI Init] Loading font..." );
         try: self.font = pygame.font.SysFont( "monospace", 14 ); self.font_small = pygame.font.SysFont( "monospace", 12 ); print( "[GUI Init] Monospace font loaded." )
         except Exception: print( "[GUI Init] Monospace font not found." ); self.font = pygame.font.Font( None, 20 ); self.font_small = pygame.font.Font( None, 16 )
-        self.screen_surface = pygame.Surface( ( self.screen_width * self.pixel_size, self.screen_height * self.pixel_size ) )
-        self.screen_surface.fill( ( 0,0,0 ) )
+        self.vram_surface = pygame.Surface((self.screen_width, self.screen_height))
+        self.info_panel_surface = pygame.Surface((self.info_panel_width, self.total_height))
         self.colors = [ ( 0,0,0 ), ( 128,0,0 ), ( 0,128,0 ), ( 128,128,0 ), ( 0,0,128 ), ( 128,0,128 ), ( 0,128,128 ), ( 192,192,192 ), ( 64,64,64 ), ( 255,0,0 ), ( 0,255,0 ), ( 255,255,0 ), ( 0,0,255 ), ( 255,0,255 ), ( 0,255,255 ), ( 255,255,255 ) ]
-        self.running_gui = True; self.status_message = "Idle. Press 'home' to load/run."
-        self.needs_display_update = True
+        self.palette_array = np.array(self.colors, dtype=np.uint8)
+        self.rebuild_memory_view()
+        self.running_gui = True
+        self.status_message = "Load a program to begin."
+        self.code_loaded = False
+        self.info_dirty = True
+        self.last_known_pc = -1
+        self.last_known_sp = -1
+        self.last_known_flags = {}
+        self.last_cpu_running_state = False
+        self.button_color = (80, 80, 100)
+        self.button_hover_color = (110, 110, 140)
+        self.button_text_color = (255, 255, 255)
+        info_x = 10; button_y = 40; button_width = 90; button_height = 30; button_spacing = 10
+        self.load_button_rect = pygame.Rect(info_x, button_y, button_width, button_height)
+        self.run_button_rect = pygame.Rect(info_x + button_width + button_spacing, button_y, button_width, button_height)
+        self.stop_button_rect = pygame.Rect(info_x + (button_width + button_spacing) * 2, button_y, button_width, button_height)
+        self.tk_root = tk.Tk(); self.tk_root.withdraw()
         print( "[GUI Init] Initialization complete." )
-
-    def update_pixel( self, col, row, color_index ):
-        if 0 <= col < self.screen_width and 0 <= row < self.screen_height:
-            px, py = col * self.pixel_size, row * self.pixel_size
-            color = self.colors[ color_index ] if 0 <= color_index < len( self.colors ) else ( 255, 0, 0 )
-            pygame.draw.rect( self.screen_surface, color, ( px, py, self.pixel_size, self.pixel_size ) )
-            self.needs_display_update = True
-
-    def update_gui_callback( self ): self.status_message = f"CPU Halted. Final PC: 0x{self.cpu.registers.get( 'PC', 0 ):04X}"; self.needs_display_update = True; print( "[CPU Callback] CPU thread finished." )
-
+    def rebuild_memory_view(self):
+        print("[GUI] Rebuilding memory view...")
+        screen_start = self.cpu.screen_address
+        self.screen_memory_view = np.frombuffer(self.cpu.memory, dtype=np.uint8, count=(self.screen_width * self.screen_height), offset=screen_start).reshape((self.screen_height, self.screen_width))
+    def update_gui_callback( self ): 
+        self.status_message = f"CPU Halted. Final PC: 0x{self.cpu.registers.get( 'PC', 0 ):04X}"; self.info_dirty = True; print( "[CPU Callback] CPU thread finished." )
     def run_gui_loop( self ):
         print( "[GUI Loop] Starting GUI loop..." ); clock = pygame.time.Clock()
         while self.running_gui:
             for event in pygame.event.get():
-                 if event.type == pygame.QUIT: print( "[GUI Event] QUIT received." ); self.stop_simulator(); self.running_gui = False; break
-                 if event.type == pygame.KEYDOWN:
-                     print( f"[GUI Event] KEYDOWN: {event.key} ({pygame.key.name( event.key )})" )
-                     if event.key == pygame.K_HOME: print( "[GUI Action] 'home' key pressed." ); self.run_simulator_from_input()
-                     elif event.key == pygame.K_DELETE: print( "[GUI Action] 'delete' key pressed." ); self.stop_simulator()
-                     else:
-                        if self.cpu.memory[self.cpu.keyboard_status_address] == 0:
-                            if event.unicode and 32 <= ord(event.unicode) <= 126 or event.key == pygame.K_RETURN:
-                                key_code = ord(event.unicode) if event.unicode else 13
-                                self.cpu.memory[self.cpu.keyboard_data_address] = key_code
-                                self.cpu.memory[self.cpu.keyboard_status_address] = 1
-                                self.needs_display_update = True
-                            elif event.key == pygame.K_BACKSPACE:
-                                self.cpu.memory[self.cpu.keyboard_data_address] = 8
-                                self.cpu.memory[self.cpu.keyboard_status_address] = 1
-                                self.needs_display_update = True
-
+                if event.type == pygame.QUIT:
+                    print( "[GUI Event] QUIT received." ); self.stop_simulator(); self.running_gui = False; break
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:
+                        info_panel_x_start = self.screen_width * self.pixel_size
+                        mouse_pos_relative = (event.pos[0] - info_panel_x_start, event.pos[1])
+                        if self.load_button_rect.collidepoint(mouse_pos_relative): self.load_program_from_dialog()
+                        elif self.run_button_rect.collidepoint(mouse_pos_relative): self.run_cpu()
+                        elif self.stop_button_rect.collidepoint(mouse_pos_relative): self.stop_simulator()
+                if event.type == pygame.KEYDOWN:
+                    key_code = 0
+                    if event.unicode and 32 <= ord(event.unicode) <= 126: key_code = ord(event.unicode)
+                    elif event.key == pygame.K_RETURN: key_code = 13
+                    elif event.key == pygame.K_BACKSPACE: key_code = 8
+                    if key_code and not self.cpu.interrupt_requests['KEYBOARD']:
+                        self.cpu.memory[self.cpu.keyboard_data_address] = key_code
+                        self.cpu.interrupt_requests['KEYBOARD'] = True; self.info_dirty = True
             if not self.running_gui: break
-            if self.needs_display_update or (self.cpu_thread and self.cpu_thread.is_alive()):
-                 self.update_gui_display(); self.needs_display_update = False
-            clock.tick( 60 )
+            if (self.cpu.registers['PC'] != self.last_known_pc or self.cpu.registers['SP'] != self.last_known_sp or self.cpu.flags != self.last_known_flags or self.cpu.running != self.last_cpu_running_state):
+                self.info_dirty = True
+            self.update_gui_display(); clock.tick( 60 )
         print( "[GUI Loop] Exiting GUI loop." ); pygame.quit()
-
-    def run_simulator_from_input( self ):
-        file_path = "program.asm"
+    def load_program_from_dialog(self):
+        file_path = filedialog.askopenfilename(title="Open Assembly File", filetypes=(("Assembly Files", "*.asm"), ("All files", "*.*")))
+        if not file_path: self.status_message = "File load cancelled."; self.info_dirty = True; return
         try:
              with open( file_path, "r" ) as f: code_text = f.read()
-        except Exception as e: self.status_message = f"Error reading {file_path}"; self.needs_display_update=True; return
-
-        assembler = Assembler(); assembled_code = assembler.assemble( code_text )
-        if assembled_code is None: self.status_message = "Assembly Error."; self.needs_display_update=True; return
-
+        except Exception as e: self.status_message = f"Error reading {os.path.basename(file_path)}"; self.info_dirty=True; return
+        assembler = Assembler()
+        assembled_code = assembler.assemble( code_text )
+        if assembled_code is None: self.status_message = "Assembly Error."; self.info_dirty=True; self.code_loaded = False; return
         if self.cpu_thread and self.cpu_thread.is_alive(): self.stop_simulator()
-
         self.cpu.__init__( self.cpu.memory_size, self.cpu.stack_size, self.cpu.gui, self.cpu.update_callback )
-        self.screen_surface.fill( ( 0,0,0 ) )
-        
-        font = [ 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x00,0x18,0x00,0x00,0x36,0x36,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x5A,0x24,0x7E,0x24,0x5A,0x18,0x00,0x44,0x4A,0x52,0x4A,0x48,0x00,0x00,0x00,0x6C,0x54,0x28,0x1A,0x36,0x00,0x00,0x00,0x18,0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x0C,0x18,0x30,0x60,0x60,0x00,0x00,0x00,0x60,0x30,0x18,0x0C,0x0C,0x00,0x00,0x00,0x00,0x36,0xDB,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x3E,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x30,0x00,0x00,0x00,0x00,0x00,0x3E,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00,0x00,0x00,0x04,0x08,0x10,0x20,0x40,0x00,0x00,0x00,0x3C,0x42,0x42,0x42,0x42,0x42,0x3C,0x00,0x18,0x38,0x18,0x18,0x18,0x18,0x7E,0x00,0x3C,0x42,0x02,0x04,0x08,0x10,0x7E,0x00,0x3C,0x42,0x02,0x1C,0x02,0x42,0x3C,0x00,0x04,0x0C,0x14,0x24,0x7E,0x04,0x04,0x00,0x7E,0x40,0x40,0x7C,0x02,0x02,0x3C,0x00,0x3C,0x40,0x40,0x7C,0x42,0x42,0x3C,0x00,0x40,0x40,0x20,0x10,0x08,0x08,0x08,0x00,0x3C,0x42,0x42,0x3C,0x42,0x42,0x3C,0x00,0x3C,0x42,0x42,0x3E,0x02,0x02,0x3C,0x00,0x00,0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00,0x00,0x18,0x18,0x00,0x18,0x18,0x30,0x04,0x08,0x10,0x20,0x10,0x08,0x04,0x00,0x00,0x3E,0x00,0x3E,0x00,0x3E,0x00,0x00,0x20,0x10,0x08,0x04,0x08,0x10,0x20,0x00,0x3C,0x42,0x02,0x0C,0x18,0x00,0x18,0x00,0x3C,0x42,0x4A,0x4A,0x4A,0x40,0x3C,0x00,0x18,0x3C,0x66,0x66,0x7E,0x66,0x66,0x00,0x7C,0x66,0x66,0x7C,0x66,0x66,0x7C,0x00,0x3C,0x66,0x40,0x40,0x40,0x66,0x3C,0x00,0x7C,0x66,0x66,0x66,0x66,0x66,0x7C,0x00,0x7E,0x40,0x40,0x7C,0x40,0x40,0x7E,0x00,0x7E,0x40,0x40,0x7C,0x40,0x40,0x40,0x00,0x3C,0x66,0x40,0x40,0x4E,0x66,0x3C,0x00,0x66,0x66,0x66,0x7E,0x66,0x66,0x66,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x02,0x02,0x02,0x02,0x62,0x66,0x3C,0x00,0x66,0x6C,0x78,0x70,0x6C,0x66,0x66,0x00,0x40,0x40,0x40,0x40,0x40,0x40,0x7E,0x00,0x66,0x66,0x7E,0x7E,0x76,0x66,0x66,0x00,0x66,0x66,0x76,0x7E,0x6E,0x66,0x66,0x00,0x3C,0x66,0x66,0x66,0x66,0x66,0x3C,0x00,0x7C,0x66,0x66,0x7C,0x40,0x40,0x40,0x00,0x3C,0x66,0x66,0x66,0x6E,0x6C,0x3E,0x00,0x7C,0x66,0x66,0x7C,0x6C,0x66,0x66,0x00,0x3C,0x60,0x3C,0x06,0x3C,0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x66,0x66,0x66,0x66,0x66,0x3C,0x18,0x00,0x66,0x66,0x3C,0x18,0x3C,0x66,0x66,0x00,0x66,0x66,0x66,0x3C,0x66,0x66,0x66,0x00,0x66,0x3C,0x18,0x3C,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x18,0x18,0x00,0x00,0x00,0x7E,0x02,0x04,0x08,0x7E,0x00,0x00,0x00,0x7E,0x18,0x18,0x18,0x18,0x18,0x7E,0x00,0x40,0x20,0x10,0x08,0x04,0x00,0x00,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x3C,0x66,0x00,0x00,0x00,0x00,0x00,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x02,0x30,0x18,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x3C,0x06,0x3E,0x66,0x66,0x3E,0x00,0x40,0x40,0x7C,0x66,0x66,0x66,0x7C,0x00,0x00,0x00,0x3C,0x60,0x60,0x60,0x3C,0x00,0x06,0x06,0x3E,0x66,0x66,0x66,0x3E,0x00,0x00,0x3C,0x66,0x7E,0x60,0x60,0x3C,0x00,0x1C,0x30,0x78,0x30,0x30,0x30,0x30,0x00,0x00,0x3E,0x66,0x66,0x3E,0x06,0x66,0x3E,0x40,0x40,0x7C,0x66,0x66,0x66,0x66,0x00,0x00,0x38,0x18,0x18,0x18,0x18,0x3C,0x00,0x04,0x04,0x04,0x04,0x64,0x64,0x38,0x00,0x40,0x40,0x60,0x70,0x6C,0x66,0x66,0x00,0x38,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x00,0x00,0x7C,0x66,0x76,0x66,0x66,0x00,0x00,0x00,0x7C,0x66,0x66,0x66,0x66,0x00,0x00,0x00,0x3C,0x66,0x66,0x66,0x3C,0x00,0x00,0x7C,0x66,0x66,0x7C,0x40,0x40,0x40,0x00,0x3E,0x66,0x66,0x3E,0x06,0x06,0x06,0x00,0x00,0x7C,0x66,0x40,0x40,0x40,0x00,0x00,0x00,0x3E,0x06,0x3C,0x60,0x3E,0x00,0x38,0x18,0x18,0x78,0x18,0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x66,0x66,0x3E,0x00,0x00,0x00,0x66,0x66,0x3C,0x18,0x18,0x00,0x00,0x00,0x66,0x66,0x76,0x7E,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x3C,0x66,0x00,0x00,0x00,0x66,0x3C,0x18,0x3C,0x18,0x00,0x00,0x00,0x7E,0x04,0x08,0x10,0x7E,0x00,0x0C,0x18,0x18,0x7E,0x18,0x18,0x0C,0x00,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x00,0x30,0x18,0x18,0x7E,0x18,0x18,0x30,0x00,0x00,0x76,0xDB,0x00,0x00,0x00,0x00,0x00 ]
-        self.cpu.load_program( font, self.cpu.font_addr )
-        
+        self.rebuild_memory_view(); self.vram_surface.fill( ( 0,0,0 ) )
+        if self.cpu.load_program(font_data, self.cpu.font_addr): print("[GUI Loop] Font loaded into memory.")
         start_address = 0
         if self.cpu.load_program( assembled_code, start_address ):
-            self.cpu.registers[ "PC" ] = start_address
-            self.status_message = f"Running from 0x{start_address:04X}..."; self.needs_display_update=True
-            self.cpu_thread = threading.Thread( target=self.cpu.run, daemon=True ); self.cpu_thread.start()
-        else: self.status_message = "Error loading program."; self.needs_display_update=True
-
+            self.cpu.registers[ "PC" ] = 0; self.status_message = f"Loaded {os.path.basename(file_path)}. Ready."; self.code_loaded = True; self.info_dirty = True
+        else: self.status_message = "Error loading program."; self.code_loaded = False; self.info_dirty = True
+    def run_cpu(self):
+        if self.cpu_thread and self.cpu_thread.is_alive(): self.status_message = "Simulator is already running."; self.info_dirty = True; return
+        if not self.code_loaded: self.status_message = "No program loaded."; self.info_dirty = True; return
+        self.status_message = f"Running from 0x{self.cpu.registers['PC']:04X}..."; self.info_dirty = True
+        self.cpu_thread = threading.Thread(target=self.cpu.run, daemon=True); self.cpu_thread.start()
     def stop_simulator( self ):
         if self.cpu_thread and self.cpu_thread.is_alive():
-            self.cpu.stop_event.set()
-            self.cpu_thread.join( timeout=1.0 )
+            self.cpu.stop_event.set(); self.cpu_thread.join( timeout=1.0 ); self.status_message = "Simulator stopped by user."; self.info_dirty = True
         self.cpu_thread = None
-
     def update_gui_display( self ):
-        screen_start_addr = self.cpu.screen_address
-    
-        for row in range(self.screen_height):
-            for col in range(self.screen_width):
-                mem_addr = screen_start_addr + (row * self.screen_width) + col
-                color_index = self.cpu.memory[mem_addr]
-            
-                px, py = col * self.pixel_size, row * self.pixel_size
-                color = self.colors[color_index]
-                pygame.draw.rect(self.screen_surface, color, (px, py, self.pixel_size, self.pixel_size))
-
-        self.screen.blit( self.screen_surface, ( 0, 0 ) )
-
-        info_panel_rect = pygame.Rect( self.screen_width * self.pixel_size, 0, self.info_panel_width, self.total_height )
-        pygame.draw.rect( self.screen, ( 50, 50, 50 ), info_panel_rect )
-        info_x = self.screen_width * self.pixel_size + 10; y = 10
-        status_surf=self.font.render( self.status_message, True, ( 255,255,0 ) ); self.screen.blit( status_surf,( info_x, y ) ); y += 25
-        reg_title=self.font.render( "Registers:", True, ( 200,200,200 ) ); self.screen.blit( reg_title,( info_x, y ) ); y += 18
-        for reg, val in self.cpu.registers.items():
-            txt = f"{reg:<3}: 0x{val:04X}" if reg in [ "PC", "SP" ] else f"{reg:<3}: 0x{val:02X} ({val})"
-            surf = self.font_small.render(txt, True, ( 255,255,255 ) ); self.screen.blit( surf,( info_x, y ) ); y += 16
-        flags_str = f"FLAGS: Z={self.cpu.flags[ 'Z' ]} N={self.cpu.flags[ 'N' ]} C={self.cpu.flags[ 'C' ]}"; flags_surf = self.font_small.render( flags_str, True, ( 255,255,255 ) ); self.screen.blit( flags_surf, ( info_x, y ) ); y += 20
-        stack_title = self.font.render( "Stack:", True, ( 200,200,200 ) ); self.screen.blit( stack_title, ( info_x, y ) ); y += 18
-        stack_lines = self.cpu.get_stack_as_string( max_entries = 6 ).splitlines(); stack_lines = stack_lines[ 1: ]
-        for line in stack_lines:
-            surf = self.font_small.render( line, True, ( 255,255,255 ) ); self.screen.blit( surf, ( info_x, y ) ); y += 16
-            if y > self.total_height - 150: break
-        y += 5; mem_title = self.font.render( "Memory (Around PC):", True, ( 200,200,200 ) ); self.screen.blit( mem_title, ( info_x, y ) ); y += 18
-        pc = self.cpu.registers.get( "PC", 0 ); mem_start = max( 0, pc - 8 ); mem_bytes = 48
-        mem_lines = self.cpu.get_memory_as_string( mem_start, mem_bytes, bytes_per_line = 8 ).splitlines(); mem_lines = mem_lines[ 1: ]
-        for line in mem_lines:
-            color=( 255,255,255 ); is_pc_line = False
-            try:
-                line_addr = int( line.split( ':', 1 )[ 0 ], 16 );
-                if line_addr <= pc < line_addr + 8: color=( 0,255,0 ); is_pc_line = True
-            except: pass
-            pc_marker = " <--" if is_pc_line else ""
-            surf = self.font_small.render( line + pc_marker, True, color ); self.screen.blit( surf, ( info_x, y ) ); y += 16
-            if y > self.total_height - 20: break
-
+        rgb_array = self.palette_array[self.screen_memory_view]; pygame.surfarray.blit_array(self.vram_surface, np.swapaxes(rgb_array, 0, 1))
+        scaled_surface = pygame.transform.scale(self.vram_surface, (self.screen_width * self.pixel_size, self.total_height)); self.screen.blit(scaled_surface, (0, 0))
+        if self.info_dirty:
+            self.info_panel_surface.fill((50, 50, 50)); info_x = 10; y = 10
+            status_surf=self.font.render( self.status_message, True, ( 255,255,0 ) ); self.info_panel_surface.blit( status_surf,( info_x, y ) ); y += 65
+            reg_title=self.font.render( "Registers:", True, ( 200,200,200 ) ); self.info_panel_surface.blit( reg_title,( info_x, y ) ); y += 18
+            regs = list(self.cpu.registers.items()); num_regs_col1 = (len(regs) + 1) // 2
+            for i, (reg, val) in enumerate(regs):
+                col_x = info_x if i < num_regs_col1 else info_x + 140; row_y = y + ((i % num_regs_col1) * 16)
+                txt = f"{reg:<3}: 0x{val:04X}" if reg in ["PC", "SP"] else f"{reg:<3}: 0x{val:02X} ({val})"; surf = self.font_small.render(txt, True, (255, 255, 255)); self.info_panel_surface.blit(surf, (col_x, row_y))
+            y += num_regs_col1 * 16 + 5
+            flags_str = f"FLAGS: Z={self.cpu.flags['Z']} N={self.cpu.flags['N']} C={self.cpu.flags['C']} V={self.cpu.flags['V']} A={self.cpu.flags['A']} I={self.cpu.flags['I']}"
+            flags_surf = self.font_small.render( flags_str, True, ( 255,255,255 ) ); self.info_panel_surface.blit( flags_surf, ( info_x, y ) ); y += 20
+            stack_title = self.font.render( "Stack:", True, ( 200,200,200 ) ); self.info_panel_surface.blit( stack_title, ( info_x, y ) ); y += 18
+            stack_lines = self.cpu.get_stack_as_string( max_entries = 4 ).splitlines()[1:]
+            for line in stack_lines: surf = self.font_small.render( line, True, ( 255,255,255 ) ); self.info_panel_surface.blit( surf, ( info_x, y ) ); y += 16
+            y += 5; mem_title = self.font.render( "Memory (Around PC):", True, ( 200,200,200 ) ); self.info_panel_surface.blit( mem_title, ( info_x, y ) ); y += 18
+            pc = self.cpu.registers.get( "PC", 0 ); mem_start = max( 0, pc - 8 ); mem_bytes = 48
+            mem_lines = self.cpu.get_memory_as_string( mem_start, mem_bytes, bytes_per_line = 8 ).splitlines()[1:]
+            for line in mem_lines:
+                color=( 255,255,255 ); is_pc_line = False
+                try:
+                    line_addr = int( line.split( ':', 1 )[ 0 ], 16 );
+                    if line_addr <= pc < line_addr + 8: color=( 0,255,0 ); is_pc_line = True
+                except: pass
+                pc_marker = " <--" if is_pc_line else ""
+                surf = self.font_small.render( line + pc_marker, True, color ); self.info_panel_surface.blit( surf, ( info_x, y ) ); y += 16
+            self.last_known_pc = self.cpu.registers['PC']; self.last_known_sp = self.cpu.registers['SP']; self.last_known_flags = self.cpu.flags.copy(); self.last_cpu_running_state = self.cpu.running; self.info_dirty = False
+        info_panel_x_start = self.screen_width * self.pixel_size
+        self.screen.blit(self.info_panel_surface, (info_panel_x_start, 0))
+        mouse_pos = pygame.mouse.get_pos(); mouse_pos_relative = (mouse_pos[0] - info_panel_x_start, mouse_pos[1])
+        load_color = self.button_hover_color if self.load_button_rect.collidepoint(mouse_pos_relative) else self.button_color
+        pygame.draw.rect(self.screen, load_color, self.load_button_rect.move(info_panel_x_start, 0), border_radius=5)
+        load_text = self.font_small.render("Load ASM", True, self.button_text_color); self.screen.blit(load_text, (self.load_button_rect.x + 15 + info_panel_x_start, self.load_button_rect.y + 8))
+        run_color = self.button_hover_color if self.run_button_rect.collidepoint(mouse_pos_relative) else self.button_color
+        pygame.draw.rect(self.screen, run_color, self.run_button_rect.move(info_panel_x_start, 0), border_radius=5)
+        run_text = self.font_small.render("Run", True, self.button_text_color); self.screen.blit(run_text, (self.run_button_rect.x + 30 + info_panel_x_start, self.run_button_rect.y + 8))
+        stop_color = self.button_hover_color if self.stop_button_rect.collidepoint(mouse_pos_relative) else self.button_color
+        pygame.draw.rect(self.screen, stop_color, self.stop_button_rect.move(info_panel_x_start, 0), border_radius=5)
+        stop_text = self.font_small.render("Stop", True, self.button_text_color); self.screen.blit(stop_text, (self.stop_button_rect.x + 28 + info_panel_x_start, self.stop_button_rect.y + 8))
         pygame.display.flip()
 
 if __name__ == "__main__":
     print( "[Main] Script starting..." )
-    memory_size = 65535
-    stack_size = 512
+    memory_size = 65535; stack_size = 512
     print( "[Main] Creating CPU..." )
     cpu = CPU( memory_size, stack_size, gui=None, update_callback=None )
+    print( f"[MEMORY] RAM Max: {cpu.memory_size}" ); print( f"[MEMORY] RAM Used: {cpu.mem_used}" ); print( f"[MEMORY] RAM Free: {cpu.mem_free}" )
+    print( f"[MEMORY] Font Data: 0x{cpu.font_addr:04x}" ); print( f"[MEMORY] Kbd Status: 0x{cpu.keyboard_status_address:04x}" ); print( f"[MEMORY] Kbd Data: 0x{cpu.keyboard_data_address:04x}" )
+    print( f"[MEMORY] Video Address: 0x{cpu.screen_address:04x}" ); print( f"[MEMORY] Stack: 0x{cpu.stack_limit:04x}-0x{cpu.stack_base:04x}" )
     print( "[Main] Creating SimulatorGUI..." )
     gui = SimulatorGUI( cpu )
     print( "[Main] Starting GUI event loop..." )
